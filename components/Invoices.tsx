@@ -32,7 +32,6 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData }) => {
   const exportCompleteEntries = () => {
     if (!isAdmin) return;
 
-    // Header row for the flattened CSV
     const headers = [
       'Invoice Number',
       'Date',
@@ -57,7 +56,7 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData }) => {
         rows.push([
           sale.invoiceNumber,
           sale.date,
-          `"${sale.customerName.replace(/"/g, '""')}"`, // Escape quotes for CSV
+          `"${sale.customerName.replace(/"/g, '""')}"`,
           `"${item.productName.replace(/"/g, '""')}"`,
           item.quantity.toString(),
           item.unit,
@@ -119,7 +118,6 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData }) => {
           </div>
         </div>
 
-        {/* Invoice Paper Rendering */}
         <div 
           className={`mx-auto bg-white shadow-2xl transition-all duration-300 ${
             isThermal58 ? 'max-w-[210px] p-2' : 
@@ -134,30 +132,28 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData }) => {
             </div>
           )}
           
-          {/* Header */}
           <div className={`flex flex-col items-center border-b border-slate-200 pb-4 mb-4 text-center ${isThermal ? 'border-dashed' : 'border-slate-100'}`}>
             {data.business?.logo && (
               <img 
                 src={data.business.logo} 
                 alt="Logo" 
-                className={`${isThermal58 ? 'w-16 h-16' : 'w-48 h-48'} object-contain mb-2`} 
+                className={`${isThermal58 ? 'w-24 h-24' : 'w-72 h-72'} object-contain mb-4`} 
               />
             )}
-            <h1 className={`${isThermal58 ? 'text-xs' : 'text-xl'} font-black uppercase tracking-tight text-slate-800`}>
+            <h1 className={`${isThermal58 ? 'text-sm' : 'text-2xl'} font-black uppercase tracking-tight text-slate-800`}>
               {data.business?.name}
             </h1>
-            <p className={`${isThermal58 ? 'text-[7px]' : 'text-xs'} font-medium text-slate-500 uppercase italic`}>
+            <p className={`${isThermal58 ? 'text-[8px]' : 'text-sm'} font-medium text-slate-500 uppercase italic`}>
               {data.business?.tagline}
             </p>
-            <div className={`${isThermal58 ? 'text-[7px]' : 'text-[10px]'} mt-2 text-slate-500 space-y-0.5 leading-tight`}>
+            <div className={`${isThermal58 ? 'text-[8px]' : 'text-[11px]'} mt-2 text-slate-500 space-y-0.5 leading-tight`}>
               <p>{data.business?.address}</p>
               <p>Ph: {data.business?.phone}</p>
               {data.business?.gst && <p className="font-bold">GSTIN: {data.business.gst}</p>}
             </div>
           </div>
 
-          {/* Info */}
-          <div className={`flex justify-between mb-4 ${isThermal58 ? 'text-[7px]' : 'text-xs'}`}>
+          <div className={`flex justify-between mb-4 ${isThermal58 ? 'text-[8px]' : 'text-xs'}`}>
             <div className="space-y-0.5">
               <p className="text-slate-400 font-bold uppercase text-[6px] tracking-widest">Bill To</p>
               <p className="font-bold text-slate-800 uppercase">{selectedInvoice.customerName}</p>
@@ -169,16 +165,15 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData }) => {
             </div>
           </div>
 
-          {/* Table */}
           <table className="w-full mb-4">
             <thead className={`border-y border-slate-200 ${isThermal ? 'border-dashed' : ''} bg-slate-50`}>
-              <tr className={`${isThermal58 ? 'text-[7px]' : 'text-[10px]'} uppercase font-black`}>
+              <tr className={`${isThermal58 ? 'text-[8px]' : 'text-[10px]'} uppercase font-black`}>
                 <th className="py-1 text-left text-slate-600">Item</th>
                 <th className="py-1 text-center text-slate-600">Qty</th>
                 <th className="py-1 text-right text-slate-600">Amt</th>
               </tr>
             </thead>
-            <tbody className={`divide-y divide-slate-100 ${isThermal ? 'divide-dashed' : ''} ${isThermal58 ? 'text-[7px]' : 'text-xs'}`}>
+            <tbody className={`divide-y divide-slate-100 ${isThermal ? 'divide-dashed' : ''} ${isThermal58 ? 'text-[8px]' : 'text-xs'}`}>
               {selectedInvoice.items.map((item, idx) => (
                 <tr key={idx} className="align-top">
                   <td className="py-1 font-medium text-slate-800 break-words max-w-[80px]">{item.productName}</td>
@@ -189,9 +184,8 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData }) => {
             </tbody>
           </table>
 
-          {/* Totals */}
           <div className={`ml-auto w-full space-y-1 pt-2 border-t-2 ${isThermal ? 'border-dashed border-slate-800' : 'border-slate-800 md:w-1/2'}`}>
-             <div className={`flex justify-between ${isThermal58 ? 'text-[7px]' : 'text-xs'}`}>
+             <div className={`flex justify-between ${isThermal58 ? 'text-[8px]' : 'text-xs'}`}>
                 <span className="text-slate-500 font-bold">Subtotal</span>
                 <span className="font-bold text-slate-800">₹{selectedInvoice.totalAmount.toLocaleString()}</span>
              </div>
@@ -201,7 +195,6 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData }) => {
              </div>
           </div>
 
-          {/* Footer */}
           <div className="mt-6 text-center space-y-1 pb-4">
             <p className={`${isThermal58 ? 'text-[6px]' : 'text-[9px]'} font-black text-slate-500 uppercase tracking-widest`}>
               Thanks! Visit Again

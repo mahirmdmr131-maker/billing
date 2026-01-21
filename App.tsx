@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { AppData, NavigationTab, BusinessInfo, AppTheme, User } from './types';
-import { loadData, saveData } from './utils/storage';
+import { loadData, saveData, loadDirectoryHandle, saveDirectoryHandle, clearDirectoryHandle } from './utils/storage';
 import SplashScreen from './components/SplashScreen';
 import SetupScreen from './components/SetupScreen';
 import Login from './components/Login';
@@ -14,6 +14,7 @@ import Invoices from './components/Invoices';
 import Reports from './components/Reports';
 import Settings from './components/Settings';
 import { IconDashboard, IconCustomers, IconProducts, IconSales, IconExpenses, IconInvoices, IconReports, IconSettings } from './components/Icons';
+import { uploadToDrive } from './utils/googleDrive';
 
 // Directory handle for local folder sync (cannot be serialized to localStorage)
 let directoryHandle: any = null;
@@ -122,6 +123,28 @@ const App: React.FC = () => {
     return () => clearTimeout(timer);
   }, []);
 
+  // Restore Local Directory Handle from IndexedDB on startup
+  useEffect(() => {
+    const restoreHandle = async () => {
+      try {
+        const handle = await loadDirectoryHandle();
+        if (handle) {
+          // Check permissions (some browsers require re-prompting)
+          const status = await (handle as any).queryPermission({ mode: 'readwrite' });
+          if (status === 'granted') {
+            directoryHandle = handle;
+          } else {
+            // If permission is prompted later, we just mark it as not actively connected
+            console.warn('Persisted folder handle found but permissions not yet granted.');
+          }
+        }
+      } catch (e) {
+        console.error('Failed to restore directory handle', e);
+      }
+    };
+    restoreHandle();
+  }, []);
+
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
@@ -136,6 +159,12 @@ const App: React.FC = () => {
     if (!directoryHandle || !currentData.isLocalFolderConnected) return;
 
     try {
+      // Re-verify permission if needed (browser might have revoked)
+      if (await (directoryHandle as any).queryPermission({ mode: 'readwrite' }) !== 'granted') {
+        console.warn('Backup triggered but folder permission is missing.');
+        return;
+      }
+
       const now = new Date();
       const dateStr = now.toISOString().split('T')[0];
       const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '-');
@@ -170,27 +199,49 @@ const App: React.FC = () => {
     setShowUserDropdown(false);
   };
 
-  /**
-   * Fix: Implemented handleManualSync to satisfy SettingsProps
-   */
-  const handleManualSync = () => {
-    handleLocalAutoBackup(data);
-    alert('Manual local backup triggered successfully.');
+  const handleManualSync = async () => {
+    let success = false;
+    if (directoryHandle) {
+      await handleLocalAutoBackup(data);
+      success = true;
+    }
+    
+    if (data.isDriveConnected) {
+      const driveOk = await uploadToDrive(data, data.backupFolderName);
+      if (driveOk) success = true;
+    }
+
+    if (success) {
+      alert('Backup synchronization complete.');
+    } else {
+      alert('No active backup channels (Local Folder or Google Drive) found.');
+    }
   };
 
   const handleUpdateData = (updater: (prev: AppData) => AppData) => {
     setData(prev => {
       const next = updater(prev);
-      // Trigger backup on data changes if sync is enabled
-      if (next.syncImmediatelyLocal && (next.sales.length > prev.sales.length || next.customers.length !== prev.customers.length || next.products.length !== prev.products.length)) {
-        handleLocalAutoBackup(next);
+      if (next.syncImmediatelyLocal) {
+        // Trigger local if handle is active
+        if (directoryHandle && (next.sales.length > prev.sales.length || next.customers.length !== prev.customers.length || next.products.length !== prev.products.length)) {
+          handleLocalAutoBackup(next);
+        }
+        // Trigger cloud if connected
+        if (next.isDriveConnected && (next.sales.length > prev.sales.length)) {
+          uploadToDrive(next, next.backupFolderName);
+        }
       }
       return next;
     });
   };
 
-  const setLocalHandle = (handle: any) => {
+  const setLocalHandle = async (handle: any) => {
     directoryHandle = handle;
+    if (handle) {
+      await saveDirectoryHandle(handle);
+    } else {
+      await clearDirectoryHandle();
+    }
     setData(prev => ({ 
       ...prev, 
       isLocalFolderConnected: !!handle,
@@ -225,9 +276,6 @@ const App: React.FC = () => {
       case NavigationTab.Expenses: return isAdmin ? <Expenses data={data} updateData={handleUpdateData} /> : <AccessRestricted />;
       case NavigationTab.Invoices: return <Invoices data={data} updateData={handleUpdateData} />;
       case NavigationTab.Reports: return isAdmin ? <Reports data={data} /> : <AccessRestricted />;
-      /**
-       * Fix: Passed onManualSync prop to Settings component
-       */
       case NavigationTab.Settings: return <Settings data={data} updateData={handleUpdateData} onManualSync={handleManualSync} onLogout={handleLogout} onSetLocalHandle={setLocalHandle} />;
       default: return <Dashboard data={data} updateData={handleUpdateData} />;
     }
@@ -243,7 +291,7 @@ const App: React.FC = () => {
         <nav className="flex-1 space-y-2">
           <NavItem active={activeTab === NavigationTab.Dashboard} onClick={() => setActiveTab(NavigationTab.Dashboard)} icon={<IconDashboard />} label="Dashboard" />
           <NavItem active={activeTab === NavigationTab.Customers} onClick={() => setActiveTab(NavigationTab.Customers)} icon={<IconCustomers />} label="Customers" />
-          <NavItem active={activeTab === NavigationTab.Dashboard} onClick={() => setActiveTab(NavigationTab.Dashboard)} icon={<IconProducts />} label="Products" />
+          <NavItem active={activeTab === NavigationTab.Products} onClick={() => setActiveTab(NavigationTab.Products)} icon={<IconProducts />} label="Products" />
           <NavItem active={activeTab === NavigationTab.Sales} onClick={() => setActiveTab(NavigationTab.Sales)} icon={<IconSales />} label="Sales" />
           {isAdmin && <NavItem active={activeTab === NavigationTab.Expenses} onClick={() => setActiveTab(NavigationTab.Expenses)} icon={<IconExpenses />} label="Expenses" />}
           <NavItem active={activeTab === NavigationTab.Invoices} onClick={() => setActiveTab(NavigationTab.Invoices)} icon={<IconInvoices />} label="Invoices" />
@@ -262,11 +310,11 @@ const App: React.FC = () => {
             className="flex items-center space-x-3 p-2 hover:bg-slate-50 rounded-2xl transition-all group"
           >
             <div className="text-right hidden sm:block">
-              <p className="text-sm font-black text-slate-800 group-hover:text-indigo-600 transition-colors">{data.currentUser.username}</p>
-              <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider">{data.currentUser.role}</p>
+              <p className="text-sm font-black text-slate-800 group-hover:text-indigo-600 transition-colors">{data.currentUser?.username}</p>
+              <p className="text-[10px] font-black uppercase text-slate-400 tracking-wider">{data.currentUser?.role}</p>
             </div>
             <div className="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-black group-hover:bg-indigo-600 group-hover:text-white transition-all shadow-sm">
-              {data.currentUser.username.charAt(0).toUpperCase()}
+              {data.currentUser?.username.charAt(0).toUpperCase()}
             </div>
           </button>
 
@@ -274,7 +322,7 @@ const App: React.FC = () => {
             <div className="absolute right-0 top-full mt-2 w-56 bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden animate-in fade-in slide-in-from-top-4 duration-200 z-50">
               <div className="p-4 bg-slate-50 border-b border-slate-100">
                  <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">User Options</p>
-                 <p className="text-sm font-bold text-slate-800">{data.currentUser.username}</p>
+                 <p className="text-sm font-bold text-slate-800">{data.currentUser?.username}</p>
               </div>
               <div className="p-2">
                 {isAdmin && (

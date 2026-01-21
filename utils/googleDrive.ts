@@ -1,17 +1,30 @@
 
 const CLIENT_ID = 'YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com'; 
-const SCOPES = 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.metadata.readonly';
+const SCOPES = 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/userinfo.email';
 
 let accessToken: string | null = null;
 
-export const initGoogleAuth = (onSuccess: (token: string) => void) => {
+export const initGoogleAuth = (onSuccess: (token: string, email?: string) => void) => {
   const client = (window as any).google.accounts.oauth2.initTokenClient({
     client_id: CLIENT_ID,
     scope: SCOPES,
-    callback: (response: any) => {
+    callback: async (response: any) => {
       if (response.access_token) {
         accessToken = response.access_token;
-        onSuccess(response.access_token);
+        
+        // Fetch email for display
+        let email = '';
+        try {
+          const profileRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+            headers: { Authorization: `Bearer ${accessToken}` }
+          });
+          const profileData = await profileRes.json();
+          email = profileData.email;
+        } catch (e) {
+          console.warn("Failed to fetch user email", e);
+        }
+        
+        onSuccess(response.access_token, email);
       }
     },
   });

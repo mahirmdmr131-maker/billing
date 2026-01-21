@@ -2,6 +2,8 @@
 import { AppData, User, DashboardWidget } from '../types';
 
 const STORAGE_KEY = 'am_food_processing_data';
+const HANDLE_DB_NAME = 'am_food_handles_db';
+const HANDLE_STORE_NAME = 'handles';
 
 const DEFAULT_WIDGETS: DashboardWidget[] = [
   { id: '1', type: 'kpi_sales', title: 'Total Sales', color: 'indigo', width: 'third' },
@@ -28,6 +30,42 @@ const DEFAULT_DATA: AppData = {
   isOneDriveConnected: false,
   backupFolderName: 'AM_Food_Manager_Backups',
   snapshots: []
+};
+
+// IndexedDB Helper for FileSystemHandle persistence
+export const getHandleDB = (): Promise<IDBDatabase> => {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(HANDLE_DB_NAME, 1);
+    request.onupgradeneeded = () => {
+      request.result.createObjectStore(HANDLE_STORE_NAME);
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+};
+
+export const saveDirectoryHandle = async (handle: FileSystemDirectoryHandle): Promise<void> => {
+  const db = await getHandleDB();
+  const tx = db.transaction(HANDLE_STORE_NAME, 'readwrite');
+  tx.objectStore(HANDLE_STORE_NAME).put(handle, 'backup-folder');
+  return new Promise((resolve) => {
+    tx.oncomplete = () => resolve();
+  });
+};
+
+export const loadDirectoryHandle = async (): Promise<FileSystemDirectoryHandle | null> => {
+  const db = await getHandleDB();
+  const tx = db.transaction(HANDLE_STORE_NAME, 'readonly');
+  const request = tx.objectStore(HANDLE_STORE_NAME).get('backup-folder');
+  return new Promise((resolve) => {
+    request.onsuccess = () => resolve(request.result || null);
+  });
+};
+
+export const clearDirectoryHandle = async (): Promise<void> => {
+  const db = await getHandleDB();
+  const tx = db.transaction(HANDLE_STORE_NAME, 'readwrite');
+  tx.objectStore(HANDLE_STORE_NAME).delete('backup-folder');
 };
 
 export const loadData = (): AppData => {
