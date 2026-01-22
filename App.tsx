@@ -130,12 +130,15 @@ const App: React.FC = () => {
       try {
         const handle = await loadDirectoryHandle();
         if (handle) {
-          // Check permissions (some browsers require re-prompting)
-          const status = await (handle as any).queryPermission({ mode: 'readwrite' });
-          if (status === 'granted') {
-            directoryHandle = handle;
-          } else {
-            console.warn('Persisted folder handle found but permissions not yet granted.');
+          // Wrap in try-catch because queryPermission throws in cross-origin frames
+          try {
+            const status = await (handle as any).queryPermission({ mode: 'readwrite' });
+            if (status === 'granted') {
+              directoryHandle = handle;
+            }
+          } catch (secError) {
+             // Silence security errors in subframes during startup
+             console.warn('Silent restriction: Directory handle restored but permission check blocked by browser security (likely iframe).');
           }
         }
       } catch (e) {
@@ -159,7 +162,8 @@ const App: React.FC = () => {
     if (!directoryHandle || !currentData.isLocalFolderConnected) return;
 
     try {
-      if (await (directoryHandle as any).queryPermission({ mode: 'readwrite' }) !== 'granted') {
+      const status = await (directoryHandle as any).queryPermission({ mode: 'readwrite' });
+      if (status !== 'granted') {
         console.warn('Backup triggered but folder permission is missing.');
         return;
       }

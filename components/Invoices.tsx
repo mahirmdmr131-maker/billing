@@ -15,6 +15,10 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData }) => {
   const [printMode, setPrintMode] = useState<PrintMode>('A4');
   const [overrideShowPrevious, setOverrideShowPrevious] = useState<boolean | null>(null);
   const [isLargeLogo, setIsLargeLogo] = useState(false);
+  
+  // State for editing date
+  const [editingDateId, setEditingDateId] = useState<string | null>(null);
+  const [tempDate, setTempDate] = useState<string>('');
 
   const isAdmin = data.currentUser?.role === 'admin';
 
@@ -39,6 +43,15 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData }) => {
         s.id === saleId ? { ...s, isMistake: !s.isMistake } : s
       )
     }));
+  };
+
+  const handleSaveDate = (saleId: string) => {
+    if (!tempDate) return;
+    updateData(prev => ({
+      ...prev,
+      sales: prev.sales.map(s => s.id === saleId ? { ...s, date: tempDate } : s)
+    }));
+    setEditingDateId(null);
   };
 
   const deleteInvoice = (saleId: string) => {
@@ -407,7 +420,42 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData }) => {
                     {sale.isMistake && <span className="block text-[8px] font-black uppercase text-red-500">MISTAKE</span>}
                   </td>
                   <td className="px-6 py-4 text-sm font-bold text-slate-800">{sale.customerName}</td>
-                  <td className="px-6 py-4 text-sm text-slate-600">{new Date(sale.date).toLocaleDateString()}</td>
+                  <td className="px-6 py-4 text-sm text-slate-600">
+                    {editingDateId === sale.id ? (
+                      <div className="flex items-center space-x-2">
+                        <input 
+                          type="date" 
+                          className="px-2 py-1 text-xs border border-slate-200 rounded outline-none focus:ring-1 focus:ring-indigo-500"
+                          value={tempDate}
+                          onChange={(e) => setTempDate(e.target.value)}
+                        />
+                        <button 
+                          onClick={() => handleSaveDate(sale.id)}
+                          className="p-1 bg-emerald-100 text-emerald-600 rounded hover:bg-emerald-200"
+                        >
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                        </button>
+                        <button 
+                          onClick={() => setEditingDateId(null)}
+                          className="p-1 bg-slate-100 text-slate-600 rounded hover:bg-slate-200"
+                        >
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center group/date">
+                        <span>{new Date(sale.date).toLocaleDateString()}</span>
+                        {isAdmin && (
+                          <button 
+                            onClick={() => { setEditingDateId(sale.id); setTempDate(sale.date); }}
+                            className="ml-2 opacity-0 group-hover/date:opacity-100 p-1 text-slate-400 hover:text-indigo-600 transition-opacity"
+                          >
+                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </td>
                   <td className="px-6 py-4 text-sm font-bold text-slate-800 text-right">₹{sale.totalAmount.toLocaleString()}</td>
                   <td className="px-6 py-4">
                     <div className="flex items-center justify-center space-x-2">

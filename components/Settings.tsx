@@ -1,5 +1,5 @@
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { AppData, BusinessInfo, AppTheme, User, Sale, Product, Customer, Expense } from '../types';
 import { initGoogleAuth, uploadToDrive } from '../utils/googleDrive';
 import { initOneDriveAuth, uploadToOneDrive } from '../utils/oneDrive';
@@ -23,7 +23,12 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
   const [syncingCloud, setSyncingCloud] = useState<string | null>(null);
   const [showRecycleBin, setShowRecycleBin] = useState(false);
   const [recycleTab, setRecycleTab] = useState<'sales' | 'customers' | 'products' | 'expenses'>('sales');
+  const [isInIframe, setIsInIframe] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setIsInIframe(window.self !== window.top);
+  }, []);
 
   const THEMES: { id: AppTheme; color: string; label: string }[] = [
     { id: 'indigo', color: 'bg-indigo-600', label: 'Indigo' },
@@ -42,9 +47,20 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
         mode: 'readwrite'
       });
       onSetLocalHandle(handle);
-    } catch (err) {
-      console.error('Folder picker cancelled or failed', err);
+    } catch (err: any) {
+      if (err.name === 'SecurityError') {
+        alert('SECURITY RESTRICTION: Local folder access is blocked because this app is running inside a preview frame. To use "Folder Sync", please open the app directly in a browser tab using the "Open in New Tab" button.');
+      } else if (err.name === 'AbortError') {
+        // User cancelled, no action needed
+      } else {
+        console.error('Folder picker failed', err);
+        alert('Folder access failed: ' + err.message);
+      }
     }
+  };
+
+  const openStandalone = () => {
+    window.open(window.location.href, '_blank');
   };
 
   const handleGoogleConnect = () => {
@@ -216,6 +232,27 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
 
   return (
     <div className="max-w-4xl mx-auto space-y-12 pb-20">
+      {/* App Environment Warning */}
+      {isInIframe && (
+        <div className="bg-amber-50 border border-amber-200 p-6 rounded-3xl flex flex-col md:flex-row items-center justify-between gap-4 shadow-sm animate-in fade-in duration-500">
+           <div className="flex items-center space-x-4">
+              <div className="w-12 h-12 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center shrink-0">
+                 <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              </div>
+              <div>
+                 <p className="font-black text-amber-800 uppercase text-[10px] tracking-widest">Running in Restricted Environment</p>
+                 <p className="text-sm font-medium text-amber-700">Some security-sensitive features like <b>Local Folder Sync</b> might be disabled in this view.</p>
+              </div>
+           </div>
+           <button 
+             onClick={openStandalone}
+             className="px-6 py-2 bg-amber-600 text-white font-black rounded-xl text-[10px] uppercase tracking-widest hover:bg-amber-700 transition-all shadow-md active:scale-95"
+           >
+             Open in New Tab
+           </button>
+        </div>
+      )}
+
       {/* Cloud Sync Section (Admin Only) */}
       {isAdmin && (
         <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
@@ -463,8 +500,9 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
             <p className="text-xs text-indigo-200">Automatically save billing files to a chosen folder on your PC.</p>
           </div>
           <button 
+            disabled={isInIframe}
             onClick={() => updateData(prev => ({ ...prev, syncImmediatelyLocal: !prev.syncImmediatelyLocal }))}
-            className={`w-10 h-5 rounded-full relative transition-colors ${data.syncImmediatelyLocal ? 'bg-emerald-500' : 'bg-slate-700'}`}
+            className={`w-10 h-5 rounded-full relative transition-colors ${isInIframe ? 'opacity-30 cursor-not-allowed' : ''} ${data.syncImmediatelyLocal ? 'bg-emerald-500' : 'bg-slate-700'}`}
           >
             <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-all ${data.syncImmediatelyLocal ? 'left-5.5' : 'left-0.5'}`} />
           </button>
@@ -475,7 +513,10 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
               <p className="text-sm font-bold text-slate-800">Connection Status:</p>
               <p className="text-lg font-black text-indigo-600">{data.isLocalFolderConnected ? `📁 Connected to: ${data.localFolderName}` : 'Not Connected'}</p>
             </div>
-            <button onClick={handlePickFolder} className="px-8 py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-lg">
+            <button 
+              onClick={handlePickFolder} 
+              className={`px-8 py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-lg transition-all active:scale-95 ${isInIframe ? 'bg-slate-400' : ''}`}
+            >
               {data.isLocalFolderConnected ? 'Change Folder' : 'Select Folder'}
             </button>
           </div>

@@ -309,6 +309,84 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData }) => {
           );
         })}
       </div>
+
+      {showForm && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="bg-indigo-600 px-8 py-6 text-white flex justify-between items-center">
+              <div>
+                <h3 className="text-xl font-bold uppercase tracking-tight">{editingCustomer ? 'Update Profile' : 'New Customer ID'}</h3>
+                <p className="text-[10px] text-indigo-100 font-bold uppercase tracking-widest mt-1">A M Food processing Records</p>
+              </div>
+              <button onClick={closeForm} className="p-2 hover:bg-white/10 rounded-full transition-colors">
+                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <form onSubmit={handleSubmit} className="p-8 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="col-span-2">
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Customer Full Name *</label>
+                  <input 
+                    type="text" 
+                    required 
+                    value={formData.name} 
+                    onChange={e => setFormData({ ...formData, name: e.target.value })} 
+                    className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium" 
+                    placeholder="e.g. Rahul Sharma"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Phone Number *</label>
+                  <input 
+                    type="tel" 
+                    required 
+                    value={formData.phone} 
+                    onChange={e => setFormData({ ...formData, phone: e.target.value })} 
+                    className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium" 
+                    placeholder="9998887776"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">GSTIN (Optional)</label>
+                  <input 
+                    type="text" 
+                    value={formData.gst} 
+                    onChange={e => setFormData({ ...formData, gst: e.target.value })} 
+                    className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium uppercase" 
+                    placeholder="24AAAAA0000A1Z5"
+                  />
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Email Address</label>
+                  <input 
+                    type="email" 
+                    value={formData.email} 
+                    onChange={e => setFormData({ ...formData, email: e.target.value })} 
+                    className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium" 
+                    placeholder="customer@example.com"
+                  />
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Business Address</label>
+                  <textarea 
+                    rows={2} 
+                    value={formData.address} 
+                    onChange={e => setFormData({ ...formData, address: e.target.value })} 
+                    className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium" 
+                    placeholder="Shop No, Street, City..."
+                  />
+                </div>
+              </div>
+              <div className="flex gap-4 pt-6">
+                <button type="button" onClick={closeForm} className="flex-1 px-6 py-3 border border-slate-200 text-slate-600 font-bold rounded-xl hover:bg-slate-50 transition-colors">Discard</button>
+                <button type="submit" className="flex-1 px-6 py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-lg hover:bg-indigo-700 transition-all active:scale-95">
+                  {editingCustomer ? 'Update Records' : 'Save Customer'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
