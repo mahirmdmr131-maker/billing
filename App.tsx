@@ -72,7 +72,7 @@ const BusinessEditModal: React.FC<{
                   <div className="text-slate-400 group-hover:text-indigo-500 font-bold text-xs">LOGO</div>
                 )}
                 <div className="absolute inset-0 bg-indigo-600/0 group-hover:bg-indigo-600/10 transition-colors flex items-center justify-center">
-                   <svg className="w-6 h-6 text-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                   <svg className="w-6 h-6 text-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812-1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                 </div>
               </div>
               <input type="file" accept="image/*" className="hidden" onChange={handleLogoChange} />
@@ -193,11 +193,36 @@ const App: React.FC = () => {
     setActiveTab(NavigationTab.Dashboard);
   };
 
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
     setData(prev => ({ ...prev, currentUser: null }));
     directoryHandle = null;
     setShowUserDropdown(false);
-  };
+  }, []);
+
+  // Idle Logout Logic
+  useEffect(() => {
+    if (!data.currentUser || !data.autoLogoutMinutes || data.autoLogoutMinutes <= 0) return;
+
+    let timeoutId: number;
+
+    const resetTimer = () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      timeoutId = window.setTimeout(() => {
+        handleLogout();
+        alert('You have been logged out due to inactivity.');
+      }, data.autoLogoutMinutes! * 60 * 1000);
+    };
+
+    const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'];
+    events.forEach(name => document.addEventListener(name, resetTimer));
+
+    resetTimer(); // Initial call
+
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      events.forEach(name => document.removeEventListener(name, resetTimer));
+    };
+  }, [data.currentUser, data.autoLogoutMinutes, handleLogout]);
 
   const handleManualSync = async () => {
     let success = false;

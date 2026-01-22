@@ -29,7 +29,8 @@ const DEFAULT_DATA: AppData = {
   isDriveConnected: false,
   isOneDriveConnected: false,
   backupFolderName: 'AM_Food_Manager_Backups',
-  snapshots: []
+  snapshots: [],
+  autoLogoutMinutes: 0
 };
 
 // IndexedDB Helper for FileSystemHandle persistence
@@ -81,6 +82,7 @@ export const loadData = (): AppData => {
     if (!data.dashboardWidgets) data.dashboardWidgets = DEFAULT_WIDGETS;
     if (data.syncImmediatelyLocal === undefined) data.syncImmediatelyLocal = true;
     if (data.isLocalFolderConnected === undefined) data.isLocalFolderConnected = false;
+    if (data.autoLogoutMinutes === undefined) data.autoLogoutMinutes = 0;
     
     data.customers = data.customers.map((c: any) => ({
       ...c,

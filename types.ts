@@ -113,6 +113,7 @@ export interface AppData {
   isDriveConnected: boolean; 
   isOneDriveConnected: boolean;
   backupFolderName: string;
+  autoLogoutMinutes?: number; // 0 or undefined means disabled
 }
 
 export enum NavigationTab {
