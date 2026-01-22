@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { AppData, Sale } from '../types';
+import { AppData, Sale, PaymentMethod } from '../types';
 import { IconPrint } from './Icons';
 
 interface InvoicesProps {
@@ -19,6 +19,10 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData }) => {
   // State for editing date
   const [editingDateId, setEditingDateId] = useState<string | null>(null);
   const [tempDate, setTempDate] = useState<string>('');
+
+  // State for editing payment
+  const [editingPaymentId, setEditingPaymentId] = useState<string | null>(null);
+  const [tempPaymentMethod, setTempPaymentMethod] = useState<PaymentMethod>('Cash');
 
   const isAdmin = data.currentUser?.role === 'admin';
 
@@ -52,6 +56,40 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData }) => {
       sales: prev.sales.map(s => s.id === saleId ? { ...s, date: tempDate } : s)
     }));
     setEditingDateId(null);
+  };
+
+  const handleSavePayment = (saleId: string) => {
+    updateData(prev => {
+      const sale = prev.sales.find(s => s.id === saleId);
+      if (!sale || sale.paymentMethod === tempPaymentMethod) return prev;
+
+      let updatedCustomers = [...prev.customers];
+      
+      // Balance Reconciliation Logic
+      if (sale.customerId) {
+        const oldMethod = sale.paymentMethod;
+        const newMethod = tempPaymentMethod;
+
+        if (oldMethod === 'Pending' && newMethod !== 'Pending') {
+          // Changed from Pending to Paid -> Reduce customer balance
+          updatedCustomers = updatedCustomers.map(c => 
+            c.id === sale.customerId ? { ...c, pendingBalance: Math.max(0, (c.pendingBalance || 0) - sale.totalAmount) } : c
+          );
+        } else if (oldMethod !== 'Pending' && newMethod === 'Pending') {
+          // Changed from Paid to Pending -> Increase customer balance
+          updatedCustomers = updatedCustomers.map(c => 
+            c.id === sale.customerId ? { ...c, pendingBalance: (c.pendingBalance || 0) + sale.totalAmount } : c
+          );
+        }
+      }
+
+      return {
+        ...prev,
+        customers: updatedCustomers,
+        sales: prev.sales.map(s => s.id === saleId ? { ...s, paymentMethod: tempPaymentMethod } : s)
+      };
+    });
+    setEditingPaymentId(null);
   };
 
   const deleteInvoice = (saleId: string) => {
@@ -116,6 +154,7 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData }) => {
       'Item Total (INR)',
       'Grand Total',
       'Status',
+      'Payment Method',
       'Created By'
     ];
 
@@ -137,6 +176,7 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData }) => {
           item.total.toString(),
           sale.totalAmount.toString(),
           status,
+          sale.paymentMethod,
           creator
         ]);
       });
@@ -408,6 +448,7 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData }) => {
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase">Inv #</th>
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase">Customer</th>
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase">Date</th>
+                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase">Payment</th>
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase text-right">Amount</th>
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase text-center">Actions</th>
               </tr>
@@ -456,6 +497,53 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData }) => {
                       </div>
                     )}
                   </td>
+                  <td className="px-6 py-4 text-sm">
+                    {editingPaymentId === sale.id ? (
+                      <div className="flex items-center space-x-2">
+                        <select
+                          className="px-2 py-1 text-xs border border-slate-200 rounded outline-none focus:ring-1 focus:ring-indigo-500"
+                          value={tempPaymentMethod}
+                          onChange={(e) => setTempPaymentMethod(e.target.value as PaymentMethod)}
+                        >
+                          <option value="Cash">Cash</option>
+                          <option value="UPI">UPI</option>
+                          <option value="Pending">Pending</option>
+                        </select>
+                        <button 
+                          onClick={() => handleSavePayment(sale.id)}
+                          className="p-1 bg-emerald-100 text-emerald-600 rounded hover:bg-emerald-200"
+                        >
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                        </button>
+                        <button 
+                          onClick={() => setEditingPaymentId(null)}
+                          className="p-1 bg-slate-100 text-slate-600 rounded hover:bg-slate-200"
+                        >
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center group/payment">
+                        <span className={`px-2 py-1 rounded text-[10px] font-black uppercase tracking-tighter ${
+                          sale.paymentMethod === 'Cash' ? 'bg-emerald-50 text-emerald-600' : 
+                          sale.paymentMethod === 'UPI' ? 'bg-blue-50 text-blue-600' : 
+                          'bg-orange-50 text-orange-600'
+                        }`}>
+                          {sale.paymentMethod || 'Cash'}
+                        </span>
+                        {isAdmin && (
+                          <button 
+                            onClick={() => { setEditingPaymentId(sale.id); setTempPaymentMethod(sale.paymentMethod || 'Cash'); }}
+                            className="ml-2 opacity-0 group-hover/payment:opacity-100 p-1 text-slate-400 hover:text-indigo-600 transition-opacity"
+                          >
+                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                            </svg>
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </td>
                   <td className="px-6 py-4 text-sm font-bold text-slate-800 text-right">₹{sale.totalAmount.toLocaleString()}</td>
                   <td className="px-6 py-4">
                     <div className="flex items-center justify-center space-x-2">
@@ -489,7 +577,7 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData }) => {
                 </tr>
               )) : (
                 <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center text-slate-400">No invoices generated yet.</td>
+                  <td colSpan={6} className="px-6 py-12 text-center text-slate-400">No invoices generated yet.</td>
                 </tr>
               )}
             </tbody>
