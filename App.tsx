@@ -134,7 +134,7 @@ const App: React.FC = () => {
           if (status === 'granted') {
             directoryHandle = handle;
           } else {
-            // If permission is prompted later, we just mark it as not actively connected
+            // We keep it as null until user re-prompts to ensure security
             console.warn('Persisted folder handle found but permissions not yet granted.');
           }
         }
@@ -222,12 +222,17 @@ const App: React.FC = () => {
     setData(prev => {
       const next = updater(prev);
       if (next.syncImmediatelyLocal) {
-        // Trigger local if handle is active
-        if (directoryHandle && (next.sales.length > prev.sales.length || next.customers.length !== prev.customers.length || next.products.length !== prev.products.length)) {
+        // Trigger backup if there's any structural change (even deletions)
+        const hasStructuralChange = 
+          next.sales.length !== prev.sales.length || 
+          next.customers.length !== prev.customers.length || 
+          next.products.length !== prev.products.length;
+
+        if (directoryHandle && hasStructuralChange) {
           handleLocalAutoBackup(next);
         }
-        // Trigger cloud if connected
-        if (next.isDriveConnected && (next.sales.length > prev.sales.length)) {
+        // Trigger cloud if connected and something changed
+        if (next.isDriveConnected && hasStructuralChange) {
           uploadToDrive(next, next.backupFolderName);
         }
       }

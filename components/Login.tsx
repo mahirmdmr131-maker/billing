@@ -86,24 +86,26 @@ const Login: React.FC<LoginProps> = ({ data, onLogin }) => {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m0 0v2m0-2h2m-2 0H8m13 0a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
-            <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight mb-4">Password Recovery</h3>
+            <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight mb-2">Access Recovery</h3>
+            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-6">A M Food Processing Security</p>
+            
             <div className="space-y-4 text-sm text-slate-600 leading-relaxed font-medium">
-              <p>For security, passwords are stored locally on this device.</p>
-              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 text-left space-y-2">
-                <p className="font-bold text-slate-800 text-xs uppercase tracking-widest">How to Reset:</p>
-                <ol className="list-decimal list-inside space-y-1">
-                  <li>Contact your <span className="text-indigo-600 font-bold">System Administrator</span>.</li>
-                  <li>Admin can reset staff passwords in <span className="font-bold">Settings</span>.</li>
-                  <li>If Admin is locked out, check your <span className="font-bold">Backup JSON</span> files.</li>
-                </ol>
+              <p>For security, all account data is stored locally on this machine.</p>
+              <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100 text-left space-y-3">
+                <p className="font-bold text-slate-800 text-xs uppercase tracking-widest text-indigo-600">Administrative Help:</p>
+                <p className="text-xs">Please contact the manager of <span className="font-bold">{data.business?.name || 'A M Food Processing'}</span> to reset your password.</p>
+                <div className="pt-2 border-t border-slate-200">
+                  <p className="text-[10px] font-black text-slate-400 uppercase">Contact Admin:</p>
+                  <p className="text-sm font-black text-slate-800 mt-1">📞 {data.business?.phone || 'Contact provided during setup'}</p>
+                </div>
               </div>
-              <p className="text-[10px] text-slate-400 italic">Technical Support: +91 {data.business?.phone || 'XXXXXXXXXX'}</p>
+              <p className="text-[10px] text-slate-400 italic">Administrators can reset staff access within the Settings panel.</p>
             </div>
             <button 
               onClick={() => setShowForgotModal(false)}
               className="w-full mt-8 py-4 bg-slate-900 text-white font-bold rounded-xl shadow-lg hover:bg-slate-800 transition-all active:scale-95"
             >
-              Close
+              Back to Login
             </button>
           </div>
         </div>

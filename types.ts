@@ -59,6 +59,7 @@ export interface Sale {
   createdBy: string;
   isMistake?: boolean;
   paymentMethod: PaymentMethod;
+  includePreviousBalance?: boolean; // Track if previous balance was included at time of sale
 }
 
 export interface Expense {
@@ -96,7 +97,7 @@ export interface AppData {
   products: Product[]; 
   sales: Sale[];
   expenses: Expense[];
-  dashboardWidgets: DashboardWidget[]; // New: Store dashboard configuration
+  dashboardWidgets: DashboardWidget[];
   isInitialized: boolean;
   theme: AppTheme;
   lastBackupDate?: string; 

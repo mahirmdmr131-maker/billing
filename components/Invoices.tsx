@@ -13,6 +13,7 @@ type PrintMode = 'A4' | 'Thermal80' | 'Thermal58';
 const Invoices: React.FC<InvoicesProps> = ({ data, updateData }) => {
   const [selectedInvoice, setSelectedInvoice] = useState<Sale | null>(null);
   const [printMode, setPrintMode] = useState<PrintMode>('A4');
+  const [overrideShowPrevious, setOverrideShowPrevious] = useState<boolean | null>(null);
 
   const isAdmin = data.currentUser?.role === 'admin';
 
@@ -27,6 +28,37 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData }) => {
         s.id === saleId ? { ...s, isMistake: !s.isMistake } : s
       )
     }));
+  };
+
+  const deleteInvoice = (saleId: string) => {
+    if (!isAdmin) return;
+    if (!window.confirm('PERMANENT ACTION: Are you sure you want to delete this bill? This will also revert any balance added to the customer if it was a pending bill.')) return;
+
+    updateData(prev => {
+      const saleToRemove = prev.sales.find(s => s.id === saleId);
+      if (!saleToRemove) return prev;
+
+      let updatedCustomers = [...prev.customers];
+      // Revert balance if it was a pending sale
+      if (saleToRemove.paymentMethod === 'Pending' && saleToRemove.customerId) {
+        updatedCustomers = updatedCustomers.map(c => 
+          c.id === saleToRemove.customerId 
+            ? { ...c, pendingBalance: Math.max(0, (c.pendingBalance || 0) - saleToRemove.totalAmount) } 
+            : c
+        );
+      }
+
+      return {
+        ...prev,
+        sales: prev.sales.filter(s => s.id !== saleId),
+        customers: updatedCustomers
+      };
+    });
+
+    // Deselect if the current open invoice was just deleted
+    if (selectedInvoice?.id === saleId) {
+      setSelectedInvoice(null);
+    }
   };
 
   const exportCompleteEntries = () => {
@@ -79,15 +111,21 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData }) => {
     document.body.removeChild(link);
   };
 
+  const showPrevious = overrideShowPrevious !== null ? overrideShowPrevious : !!selectedInvoice?.includePreviousBalance;
+
   if (selectedInvoice) {
     const isThermal = printMode === 'Thermal80' || printMode === 'Thermal58';
     const isThermal58 = printMode === 'Thermal58';
+
+    const customer = data.customers.find(c => c.id === selectedInvoice.customerId);
+    const hasCustomer = !!customer;
+    const previousBalance = hasCustomer ? (customer.pendingBalance || 0) : 0;
     
     return (
       <div className="space-y-6">
         <div className="no-print flex flex-col md:flex-row items-center justify-between mb-8 gap-4">
           <button
-            onClick={() => setSelectedInvoice(null)}
+            onClick={() => { setSelectedInvoice(null); setOverrideShowPrevious(null); }}
             className="text-slate-500 font-semibold hover:text-slate-800 flex items-center space-x-2"
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -95,11 +133,26 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData }) => {
             </svg>
             <span>Back to List</span>
           </button>
-          <div className="flex items-center space-x-4">
+          
+          <div className="flex flex-wrap items-center gap-4">
+            {hasCustomer && (
+              <div className="flex flex-col">
+                <label className="text-[10px] font-black uppercase text-slate-400 mb-1">Print Options</label>
+                <label className="flex items-center space-x-2 bg-white px-4 py-2 border border-slate-200 rounded-lg cursor-pointer hover:bg-slate-50 transition-colors">
+                  <input 
+                    type="checkbox" 
+                    checked={showPrevious} 
+                    onChange={e => setOverrideShowPrevious(e.target.checked)}
+                    className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" 
+                  />
+                  <span className="text-xs font-bold text-slate-700">Include Previous Dues</span>
+                </label>
+              </div>
+            )}
             <div className="flex flex-col">
               <label className="text-[10px] font-black uppercase text-slate-400 mb-1">Paper Size</label>
               <select
-                className="px-4 py-2 border border-slate-300 rounded-lg outline-none text-sm font-bold"
+                className="px-4 py-2 border border-slate-300 rounded-lg outline-none text-sm font-bold bg-white"
                 value={printMode}
                 onChange={(e) => setPrintMode(e.target.value as PrintMode)}
               >
@@ -110,10 +163,10 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData }) => {
             </div>
             <button
               onClick={handlePrint}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-lg font-bold shadow-lg flex items-center space-x-2 mt-4"
+              className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-lg font-bold shadow-lg flex items-center space-x-2 mt-4 transition-all active:scale-95"
             >
               <IconPrint />
-              <span>Print</span>
+              <span>Print Invoice</span>
             </button>
           </div>
         </div>
@@ -186,13 +239,29 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData }) => {
 
           <div className={`ml-auto w-full space-y-1 pt-2 border-t-2 ${isThermal ? 'border-dashed border-slate-800' : 'border-slate-800 md:w-1/2'}`}>
              <div className={`flex justify-between ${isThermal58 ? 'text-[8px]' : 'text-xs'}`}>
-                <span className="text-slate-500 font-bold">Subtotal</span>
+                <span className="text-slate-500 font-bold">Subtotal (Current Bill)</span>
                 <span className="font-bold text-slate-800">₹{selectedInvoice.totalAmount.toLocaleString()}</span>
              </div>
-             <div className={`flex justify-between items-center ${isThermal ? 'bg-slate-100 text-slate-900' : 'bg-slate-900 text-white'} p-1.5 rounded mt-2`}>
-                <span className="font-bold uppercase tracking-widest text-[8px]">Grand Total</span>
-                <span className={`${isThermal58 ? 'text-xs' : 'text-lg'} font-black`}>₹{selectedInvoice.totalAmount.toLocaleString()}</span>
-             </div>
+             
+             {hasCustomer && showPrevious && (
+               <>
+                 <div className={`flex justify-between ${isThermal58 ? 'text-[8px]' : 'text-xs'} border-t border-slate-100 mt-1 pt-1`}>
+                    <span className="text-slate-400 font-medium italic">Previous Pending</span>
+                    <span className="text-slate-500">₹{previousBalance.toLocaleString()}</span>
+                 </div>
+                 <div className={`flex justify-between items-center ${isThermal ? 'bg-slate-100 text-slate-900' : 'bg-slate-900 text-white'} p-1.5 rounded mt-2`}>
+                    <span className="font-bold uppercase tracking-widest text-[8px]">Total Outstanding</span>
+                    <span className={`${isThermal58 ? 'text-xs' : 'text-lg'} font-black`}>₹{(selectedInvoice.totalAmount + previousBalance).toLocaleString()}</span>
+                 </div>
+               </>
+             )}
+
+             {(!hasCustomer || !showPrevious) && (
+               <div className={`flex justify-between items-center ${isThermal ? 'bg-slate-100 text-slate-900' : 'bg-slate-900 text-white'} p-1.5 rounded mt-2`}>
+                  <span className="font-bold uppercase tracking-widest text-[8px]">Grand Total</span>
+                  <span className={`${isThermal58 ? 'text-xs' : 'text-lg'} font-black`}>₹{selectedInvoice.totalAmount.toLocaleString()}</span>
+               </div>
+             )}
           </div>
 
           <div className="mt-6 text-center space-y-1 pb-4">
@@ -279,8 +348,19 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData }) => {
                         className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-tighter transition-all border ${sale.isMistake ? 'bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100' : 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100'}`}
                         title={sale.isMistake ? "Mark as valid bill" : "Mark as mistake"}
                       >
-                        {sale.isMistake ? 'Unflag Mistake' : 'Flag Mistake'}
+                        {sale.isMistake ? 'Unflag' : 'Mistake'}
                       </button>
+                      {isAdmin && (
+                        <button
+                          onClick={() => deleteInvoice(sale.id)}
+                          className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all group"
+                          title="Delete Bill Permanently"
+                        >
+                          <svg className="w-4 h-4 group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>

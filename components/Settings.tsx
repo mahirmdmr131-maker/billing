@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { AppData, BusinessInfo, AppTheme, User } from '../types';
 import { initGoogleAuth } from '../utils/googleDrive';
 import { initOneDriveAuth } from '../utils/oneDrive';
@@ -16,6 +16,7 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
   const isAdmin = data.currentUser?.role === 'admin';
   const [newStaff, setNewStaff] = useState({ username: '', password: '' });
   const [googleEmail, setGoogleEmail] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const THEMES: { id: AppTheme; color: string; label: string }[] = [
     { id: 'indigo', color: 'bg-indigo-600', label: 'Indigo' },
@@ -72,6 +73,28 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
     link.click();
   };
 
+  const handleImportBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const importedData = JSON.parse(event.target?.result as string);
+        if (confirm('This will overwrite all current data with the backup file. Proceed?')) {
+          updateData(() => ({
+            ...importedData,
+            currentUser: data.currentUser // Keep current session
+          }));
+          alert('Data imported successfully!');
+        }
+      } catch (err) {
+        alert('Invalid backup file. Please ensure it is a valid AM Food JSON backup.');
+      }
+    };
+    reader.readAsText(file);
+  };
+
   const handleGoogleConnect = () => {
     initGoogleAuth((token, email) => {
       if (email) setGoogleEmail(email);
@@ -84,7 +107,10 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
       {/* User Management (Admin Only) */}
       {isAdmin && (
         <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
-          <div className="bg-slate-50 border-b border-slate-200 px-8 py-4"><h3 className="text-lg font-bold text-slate-800">User & Staff Management</h3><p className="text-sm text-slate-500 font-medium">Create IDs for your factory employees.</p></div>
+          <div className="bg-slate-50 border-b border-slate-200 px-8 py-4">
+            <h3 className="text-lg font-bold text-slate-800">User & Staff Management</h3>
+            <p className="text-sm text-slate-500 font-medium">Create IDs for your factory employees.</p>
+          </div>
           <div className="p-8 space-y-8">
             <form onSubmit={handleAddStaff} className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-indigo-50 p-6 rounded-2xl border border-indigo-100">
               <input type="text" placeholder="Staff Username" required className="px-4 py-2 border rounded-xl outline-none" value={newStaff.username} onChange={e => setNewStaff({ ...newStaff, username: e.target.value })} />
@@ -94,7 +120,10 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {data.users.map(user => (
                 <div key={user.id} className="flex items-center justify-between p-4 bg-white border border-slate-100 rounded-2xl hover:shadow-sm transition-all">
-                  <div><p className="font-bold text-slate-800">{user.username}</p><p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">{user.role}</p></div>
+                  <div>
+                    <p className="font-bold text-slate-800">{user.username}</p>
+                    <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">{user.role}</p>
+                  </div>
                   {user.role === 'staff' && <button onClick={() => deleteUser(user.id)} className="text-red-500 hover:text-red-700 font-bold text-xs p-2">Remove</button>}
                 </div>
               ))}
@@ -190,7 +219,26 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
 
       {/* Data Management */}
       <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="bg-slate-50 border-b border-slate-200 px-8 py-4 flex justify-between items-center"><h3 className="text-lg font-bold text-slate-800">System Preferences</h3><button onClick={handleBackup} className="text-[10px] font-black uppercase text-indigo-600 font-bold hover:underline">Manual Export (.json)</button></div>
+        <div className="bg-slate-50 border-b border-slate-200 px-8 py-4 flex justify-between items-center">
+          <h3 className="text-lg font-bold text-slate-800">System Preferences & Backup</h3>
+          <div className="flex space-x-2">
+            <button 
+              onClick={() => fileInputRef.current?.click()}
+              className="text-[10px] font-black uppercase text-indigo-600 font-bold hover:underline"
+            >
+              Import Backup
+            </button>
+            <span className="text-slate-300">|</span>
+            <button onClick={handleBackup} className="text-[10px] font-black uppercase text-indigo-600 font-bold hover:underline">Manual Export (.json)</button>
+          </div>
+          <input 
+            type="file" 
+            ref={fileInputRef} 
+            onChange={handleImportBackup} 
+            accept=".json" 
+            className="hidden" 
+          />
+        </div>
         <div className="p-8 space-y-8">
            <div className="space-y-2">
              <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Interface Theme</p>
