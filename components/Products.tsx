@@ -72,10 +72,17 @@ const Products: React.FC<ProductsProps> = ({ data, updateData }) => {
   };
 
   const deleteProduct = (id: string) => {
-    if (confirm('Delete this product from your inventory list?')) {
+    const productToDelete = data.products.find(p => p.id === id);
+    if (!productToDelete) return;
+
+    if (confirm('Move this product to Recycle Bin?')) {
       updateData(prev => ({
         ...prev,
-        products: prev.products.filter(p => p.id !== id)
+        products: prev.products.filter(p => p.id !== id),
+        recycleBin: {
+            ...prev.recycleBin,
+            products: [...prev.recycleBin.products, { ...productToDelete, deletedAt: new Date().toISOString() }]
+        }
       }));
     }
   };
@@ -101,67 +108,6 @@ const Products: React.FC<ProductsProps> = ({ data, updateData }) => {
           <span>Add Product</span>
         </button>
       </div>
-
-      {showForm && (
-        <div className="bg-white p-8 rounded-3xl shadow-xl border border-slate-200 animate-in fade-in zoom-in duration-300">
-          <div className="flex justify-between items-center mb-8">
-            <h4 className="text-2xl font-black text-slate-800 uppercase tracking-tight">{editingProduct ? 'Update Product' : 'Register Product'}</h4>
-            <button onClick={closeForm} className="text-slate-400 hover:text-slate-600 text-xl font-bold">✕</button>
-          </div>
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="md:col-span-2">
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Item Name *</label>
-                <input
-                  type="text" required
-                  className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium"
-                  value={formData.name}
-                  onChange={e => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="e.g. Mixed Fruit Pickle"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Default Billing Unit *</label>
-                <select
-                  className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium"
-                  value={formData.unit}
-                  onChange={e => setFormData({ ...formData, unit: e.target.value })}
-                >
-                  {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
-                </select>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Current Stock</label>
-                  <input
-                    type="number"
-                    className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium"
-                    value={formData.currentStock}
-                    onChange={e => setFormData({ ...formData, currentStock: e.target.value })}
-                    placeholder="e.g. 100"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Low Stock Alert at</label>
-                  <input
-                    type="number"
-                    className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium"
-                    value={formData.minThreshold}
-                    onChange={e => setFormData({ ...formData, minThreshold: e.target.value })}
-                    placeholder="e.g. 10"
-                  />
-                </div>
-              </div>
-            </div>
-            <div className="flex justify-end space-x-4 pt-6 border-t border-slate-100">
-              <button type="button" onClick={closeForm} className="px-6 py-3 text-slate-500 font-bold hover:bg-slate-50 rounded-xl">Cancel</button>
-              <button type="submit" className="px-10 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg transition-all active:scale-95">
-                {editingProduct ? 'Save Changes' : 'Create Product'}
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {filteredProducts.map(product => {
@@ -194,25 +140,9 @@ const Products: React.FC<ProductsProps> = ({ data, updateData }) => {
                   </span>
                 </div>
               </div>
-              <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
-                {isLowStock ? (
-                  <div className="px-3 py-1 bg-red-100 rounded-lg text-[10px] font-black text-red-600 uppercase tracking-widest animate-pulse">
-                    Low Stock Alert
-                  </div>
-                ) : (
-                  <div className="px-3 py-1 bg-slate-100 rounded-lg text-[10px] font-black text-slate-500 uppercase tracking-widest group-hover:bg-indigo-600 group-hover:text-white transition-colors">
-                    In Catalog
-                  </div>
-                )}
-              </div>
             </div>
           );
         })}
-        {filteredProducts.length === 0 && (
-          <div className="col-span-full py-20 text-center bg-white rounded-3xl border-2 border-dashed border-slate-200">
-            <p className="text-slate-400 font-bold">No products in catalog.</p>
-          </div>
-        )}
       </div>
     </div>
   );

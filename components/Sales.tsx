@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { AppData, Sale, SaleItem, Customer, Product, PaymentMethod } from '../types';
 import { IconAdd } from './Icons';
 
@@ -9,10 +9,15 @@ interface SalesProps {
   onNavigateToInvoices: () => void;
 }
 
+type SortKey = 'date' | 'customerName' | 'totalAmount';
+type SortDirection = 'asc' | 'desc';
+
 const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices }) => {
   const [showAddForm, setShowAddForm] = useState(false);
   const [includePreviousBalance, setIncludePreviousBalance] = useState(false);
   const [selectedCustomerBalance, setSelectedCustomerBalance] = useState(0);
+  const [sortKey, setSortKey] = useState<SortKey>('date');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   
   const [formData, setFormData] = useState({
     customerId: '',
@@ -79,7 +84,7 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices })
 
   const removeSale = (saleId: string) => {
     if (!isAdmin) return;
-    if (!window.confirm('Delete this sale record permanently? This will also revert any balance added to the customer if it was a pending bill.')) return;
+    if (!window.confirm('Move this sale to Recycle Bin? This will also revert any balance added to the customer and restore product stock.')) return;
 
     updateData(prev => {
       const saleToRemove = prev.sales.find(s => s.id === saleId);
@@ -109,6 +114,10 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices })
       return {
         ...prev,
         sales: prev.sales.filter(s => s.id !== saleId),
+        recycleBin: {
+          ...prev.recycleBin,
+          sales: [...prev.recycleBin.sales, { ...saleToRemove, deletedAt: new Date().toISOString() }]
+        },
         customers: updatedCustomers,
         products: updatedProducts
       };
@@ -131,7 +140,7 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices })
 
     const newSale: Sale = {
       id: crypto.randomUUID(),
-      invoiceNumber: `INV-${String(data.sales.length + 1).padStart(5, '0')}`,
+      invoiceNumber: `INV-${String(data.sales.length + data.recycleBin.sales.length + 1).padStart(5, '0')}`,
       date: formData.date,
       dueDate: formData.paymentMethod === 'Pending' ? formData.dueDate : undefined,
       customerId: formData.customerId || undefined,
@@ -190,6 +199,42 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices })
 
   const currentTotal = formData.items.reduce((sum, i) => sum + (Number(i.quantity || 0) * Number(i.rate || 0)), 0);
   const grandTotalWithPrevious = includePreviousBalance ? currentTotal + selectedCustomerBalance : currentTotal;
+
+  // Sorting Logic
+  const sortedSales = useMemo(() => {
+    const sorted = [...data.sales].sort((a, b) => {
+      let comparison = 0;
+      switch (sortKey) {
+        case 'date':
+          comparison = a.date.localeCompare(b.date);
+          break;
+        case 'customerName':
+          comparison = a.customerName.localeCompare(b.customerName);
+          break;
+        case 'totalAmount':
+          comparison = a.totalAmount - b.totalAmount;
+          break;
+        default:
+          comparison = 0;
+      }
+      return sortDirection === 'asc' ? comparison : -comparison;
+    });
+    return sorted;
+  }, [data.sales, sortKey, sortDirection]);
+
+  const toggleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortKey(key);
+      setSortDirection('asc');
+    }
+  };
+
+  const SortIndicator = ({ activeKey }: { activeKey: SortKey }) => {
+    if (sortKey !== activeKey) return <span className="ml-1 opacity-20">⇅</span>;
+    return <span className="ml-1 text-indigo-600 font-black">{sortDirection === 'asc' ? '↑' : '↓'}</span>;
+  };
 
   return (
     <div className="space-y-6">
@@ -331,15 +376,36 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices })
           <table className="w-full text-left">
             <thead className="bg-slate-50 border-b border-slate-200 text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">
               <tr>
-                <th className="px-8 py-5">Date / Invoice</th>
-                <th className="px-8 py-5">Customer Profile</th>
+                <th 
+                  className="px-8 py-5 cursor-pointer hover:bg-slate-100 transition-colors select-none"
+                  onClick={() => toggleSort('date')}
+                >
+                  <div className="flex items-center">
+                    Date / Invoice <SortIndicator activeKey="date" />
+                  </div>
+                </th>
+                <th 
+                  className="px-8 py-5 cursor-pointer hover:bg-slate-100 transition-colors select-none"
+                  onClick={() => toggleSort('customerName')}
+                >
+                  <div className="flex items-center">
+                    Customer Profile <SortIndicator activeKey="customerName" />
+                  </div>
+                </th>
                 <th className="px-8 py-5">Payment / Due</th>
-                <th className="px-8 py-5 text-right">Amount (₹)</th>
+                <th 
+                  className="px-8 py-5 text-right cursor-pointer hover:bg-slate-100 transition-colors select-none"
+                  onClick={() => toggleSort('totalAmount')}
+                >
+                  <div className="flex items-center justify-end">
+                    Amount (₹) <SortIndicator activeKey="totalAmount" />
+                  </div>
+                </th>
                 <th className="px-8 py-5 text-center">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {data.sales.length > 0 ? data.sales.map((sale) => (
+              {sortedSales.length > 0 ? sortedSales.map((sale) => (
                 <tr key={sale.id} className="hover:bg-slate-50/50 transition-colors group">
                   <td className="px-8 py-5">
                     <p className="text-xs font-bold text-slate-400 mb-1">{new Date(sale.date).toLocaleDateString()}</p>
@@ -378,7 +444,7 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices })
                         <button
                           onClick={() => removeSale(sale.id)}
                           className="bg-red-50 text-red-400 hover:bg-red-600 hover:text-white p-2 rounded-xl transition-all active:scale-90 border border-red-100 group"
-                          title="Remove Bill Permanently"
+                          title="Move to Recycle Bin"
                         >
                           <svg className="w-4 h-4 group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />

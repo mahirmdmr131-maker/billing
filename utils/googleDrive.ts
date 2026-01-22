@@ -12,7 +12,6 @@ export const initGoogleAuth = (onSuccess: (token: string, email?: string) => voi
       if (response.access_token) {
         accessToken = response.access_token;
         
-        // Fetch email for display
         let email = '';
         try {
           const profileRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
@@ -29,20 +28,6 @@ export const initGoogleAuth = (onSuccess: (token: string, email?: string) => voi
     },
   });
   client.requestAccessToken();
-};
-
-export const listDriveFolders = async (): Promise<{id: string, name: string}[]> => {
-  if (!accessToken) return [];
-  try {
-    const response = await fetch(
-      `https://www.googleapis.com/drive/v3/files?q=mimeType='application/vnd.google-apps.folder' and trashed=false&fields=files(id, name)`,
-      { headers: { Authorization: `Bearer ${accessToken}` } }
-    );
-    const data = await response.json();
-    return data.files || [];
-  } catch (e) {
-    return [];
-  }
 };
 
 const getOrCreateFolder = async (folderName: string): Promise<string | null> => {
@@ -100,6 +85,7 @@ export const uploadToDrive = async (data: any, folderName: string): Promise<bool
     });
     return response.ok;
   } catch (error) {
+    console.error('Drive Upload Error:', error);
     return false;
   }
 };

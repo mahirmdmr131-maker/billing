@@ -15,6 +15,7 @@ import Reports from './components/Reports';
 import Settings from './components/Settings';
 import { IconDashboard, IconCustomers, IconProducts, IconSales, IconExpenses, IconInvoices, IconReports, IconSettings } from './components/Icons';
 import { uploadToDrive } from './utils/googleDrive';
+import { uploadToOneDrive } from './utils/oneDrive';
 
 // Directory handle for local folder sync (cannot be serialized to localStorage)
 let directoryHandle: any = null;
@@ -134,7 +135,6 @@ const App: React.FC = () => {
           if (status === 'granted') {
             directoryHandle = handle;
           } else {
-            // We keep it as null until user re-prompts to ensure security
             console.warn('Persisted folder handle found but permissions not yet granted.');
           }
         }
@@ -159,7 +159,6 @@ const App: React.FC = () => {
     if (!directoryHandle || !currentData.isLocalFolderConnected) return;
 
     try {
-      // Re-verify permission if needed (browser might have revoked)
       if (await (directoryHandle as any).queryPermission({ mode: 'readwrite' }) !== 'granted') {
         console.warn('Backup triggered but folder permission is missing.');
         return;
@@ -225,21 +224,26 @@ const App: React.FC = () => {
   }, [data.currentUser, data.autoLogoutMinutes, handleLogout]);
 
   const handleManualSync = async () => {
-    let success = false;
+    let results = [];
     if (directoryHandle) {
       await handleLocalAutoBackup(data);
-      success = true;
+      results.push('Local Folder');
     }
     
     if (data.isDriveConnected) {
       const driveOk = await uploadToDrive(data, data.backupFolderName);
-      if (driveOk) success = true;
+      if (driveOk) results.push('Google Drive');
     }
 
-    if (success) {
-      alert('Backup synchronization complete.');
+    if (data.isOneDriveConnected) {
+      const oneDriveOk = await uploadToOneDrive(data, data.backupFolderName);
+      if (oneDriveOk) results.push('OneDrive');
+    }
+
+    if (results.length > 0) {
+      alert(`Backup synchronization complete for: ${results.join(', ')}`);
     } else {
-      alert('No active backup channels (Local Folder or Google Drive) found.');
+      alert('No active backup channels (Local Folder, Google Drive, or OneDrive) found.');
     }
   };
 
@@ -247,18 +251,20 @@ const App: React.FC = () => {
     setData(prev => {
       const next = updater(prev);
       if (next.syncImmediatelyLocal) {
-        // Trigger backup if there's any structural change (even deletions)
         const hasStructuralChange = 
           next.sales.length !== prev.sales.length || 
           next.customers.length !== prev.customers.length || 
-          next.products.length !== prev.products.length;
+          next.products.length !== prev.products.length ||
+          next.expenses.length !== prev.expenses.length;
 
         if (directoryHandle && hasStructuralChange) {
           handleLocalAutoBackup(next);
         }
-        // Trigger cloud if connected and something changed
         if (next.isDriveConnected && hasStructuralChange) {
           uploadToDrive(next, next.backupFolderName);
+        }
+        if (next.isOneDriveConnected && hasStructuralChange) {
+          uploadToOneDrive(next, next.backupFolderName);
         }
       }
       return next;

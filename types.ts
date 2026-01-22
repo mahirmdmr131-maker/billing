@@ -74,6 +74,13 @@ export interface Expense {
   amount: number;
 }
 
+export interface RecycleBin {
+  sales: (Sale & { deletedAt: string })[];
+  expenses: (Expense & { deletedAt: string })[];
+  customers: (Customer & { deletedAt: string })[];
+  products: (Product & { deletedAt: string })[];
+}
+
 export type DashboardWidgetType = 
   | 'kpi_sales' 
   | 'kpi_expenses' 
@@ -102,6 +109,7 @@ export interface AppData {
   products: Product[]; 
   sales: Sale[];
   expenses: Expense[];
+  recycleBin: RecycleBin;
   dashboardWidgets: DashboardWidget[];
   isInitialized: boolean;
   theme: AppTheme;

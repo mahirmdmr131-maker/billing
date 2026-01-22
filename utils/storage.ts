@@ -1,9 +1,16 @@
 
-import { AppData, User, DashboardWidget } from '../types';
+import { AppData, User, DashboardWidget, RecycleBin } from '../types';
 
 const STORAGE_KEY = 'am_food_processing_data';
 const HANDLE_DB_NAME = 'am_food_handles_db';
 const HANDLE_STORE_NAME = 'handles';
+
+const DEFAULT_RECYCLE_BIN: RecycleBin = {
+  sales: [],
+  expenses: [],
+  customers: [],
+  products: []
+};
 
 const DEFAULT_WIDGETS: DashboardWidget[] = [
   { id: '1', type: 'kpi_sales', title: 'Total Sales', color: 'indigo', width: 'third' },
@@ -21,6 +28,7 @@ const DEFAULT_DATA: AppData = {
   products: [],
   sales: [],
   expenses: [],
+  recycleBin: DEFAULT_RECYCLE_BIN,
   dashboardWidgets: DEFAULT_WIDGETS,
   isInitialized: false,
   theme: 'indigo',
@@ -77,6 +85,9 @@ export const loadData = (): AppData => {
     if (!data.users) data.users = [];
     if (!data.customers) data.customers = [];
     if (!data.products) data.products = [];
+    if (!data.sales) data.sales = [];
+    if (!data.expenses) data.expenses = [];
+    if (!data.recycleBin) data.recycleBin = DEFAULT_RECYCLE_BIN;
     if (!data.theme) data.theme = 'indigo';
     if (!data.snapshots) data.snapshots = [];
     if (!data.dashboardWidgets) data.dashboardWidgets = DEFAULT_WIDGETS;

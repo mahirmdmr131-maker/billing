@@ -1,5 +1,5 @@
 
-const CLIENT_ID = 'YOUR_ONEDRIVE_CLIENT_ID'; // Placeholder for user
+const CLIENT_ID = 'YOUR_ONEDRIVE_CLIENT_ID'; 
 const SCOPES = 'Files.ReadWrite User.Read';
 
 let odAccessToken: string | null = null;
@@ -43,8 +43,7 @@ export const uploadToOneDrive = async (data: any, folderName: string): Promise<b
     const fileName = 'AM_Food_Manager_Backup.json';
     const fileContent = JSON.stringify(data);
     
-    // Upload endpoint (automatically handles folder creation if using path based approach)
-    // Note: MS Graph path-based PUT creates folders if they don't exist
+    // MS Graph path-based PUT creates folders if they don't exist
     const url = `https://graph.microsoft.com/v1.0/me/drive/root:/${encodeURIComponent(folderName)}/${fileName}:/content`;
 
     const response = await fetch(url, {

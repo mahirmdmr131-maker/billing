@@ -91,10 +91,17 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData }) => {
   };
 
   const deleteCustomer = (id: string) => {
-    if (confirm('Delete this customer profile? Historic sales will be kept but unlinked from this profile.')) {
+    const customerToDelete = data.customers.find(c => c.id === id);
+    if (!customerToDelete) return;
+
+    if (confirm('Move this customer profile to Recycle Bin? Historic sales will be kept but unlinked.')) {
       updateData(prev => ({
         ...prev,
         customers: prev.customers.filter(c => c.id !== id),
+        recycleBin: {
+          ...prev.recycleBin,
+          customers: [...prev.recycleBin.customers, { ...customerToDelete, deletedAt: new Date().toISOString() }]
+        },
         sales: prev.sales.map(s => s.customerId === id ? { ...s, customerId: undefined } : s)
       }));
     }
@@ -124,10 +131,8 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData }) => {
           </button>
         </div>
         
-        {/* Printable Statement Start */}
         <div className="print-area bg-white md:bg-transparent md:shadow-none shadow-sm rounded-3xl p-0">
           <div className="bg-indigo-900 rounded-3xl p-8 text-white shadow-xl flex flex-col md:flex-row justify-between gap-6 relative overflow-hidden print:bg-white print:text-black print:shadow-none print:border-b-2 print:border-black print:rounded-none">
-            {/* Print Only Header Info */}
             <div className="hidden print:block text-center w-full mb-6">
                {data.business?.logo && <img src={data.business.logo} alt="Logo" className="w-24 h-24 mx-auto mb-2 object-contain" />}
                <h1 className="text-xl font-black uppercase">{data.business?.name}</h1>
@@ -265,78 +270,8 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData }) => {
         </button>
       </div>
 
-      {showForm && (
-        <div className="bg-white p-8 rounded-3xl shadow-xl border border-slate-200 animate-in fade-in zoom-in duration-300">
-          <div className="flex justify-between items-center mb-8">
-            <h4 className="text-2xl font-black text-slate-800 uppercase tracking-tight">{editingCustomer ? 'Update Customer' : 'Add Customer'}</h4>
-            <button onClick={closeForm} className="text-slate-400 hover:text-slate-600 text-xl font-bold">✕</button>
-          </div>
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Full Name *</label>
-                <input
-                  type="text" required
-                  className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium"
-                  value={formData.name}
-                  onChange={e => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="Rahul Gupta"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Phone Number *</label>
-                <input
-                  type="tel" required
-                  className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium"
-                  value={formData.phone}
-                  onChange={e => setFormData({ ...formData, phone: e.target.value })}
-                  placeholder="98XXXXXXXX"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Email</label>
-                <input
-                  type="email"
-                  className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium"
-                  value={formData.email}
-                  onChange={e => setFormData({ ...formData, email: e.target.value })}
-                  placeholder="customer@email.com"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">GSTIN</label>
-                <input
-                  type="text"
-                  className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium uppercase"
-                  value={formData.gst}
-                  onChange={e => setFormData({ ...formData, gst: e.target.value })}
-                  placeholder="22AAAAA0000A1Z5"
-                />
-              </div>
-              <div className="md:col-span-2">
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Address</label>
-                <textarea
-                  className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium"
-                  rows={2}
-                  value={formData.address}
-                  onChange={e => setFormData({ ...formData, address: e.target.value })}
-                  placeholder="Store / Home Address"
-                />
-              </div>
-            </div>
-            <div className="flex justify-end space-x-4 pt-6 border-t border-slate-100">
-              <button type="button" onClick={closeForm} className="px-6 py-3 text-slate-500 font-bold hover:bg-slate-50 rounded-xl">Cancel</button>
-              <button type="submit" className="px-10 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg transition-all active:scale-95">
-                {editingCustomer ? 'Update Changes' : 'Save Customer'}
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
-
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {filteredCustomers.map(customer => {
-          const totalSpent = data.sales.filter(s => s.customerId === customer.id).reduce((sum, s) => sum + s.totalAmount, 0);
           return (
             <div key={customer.id} className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 hover:shadow-xl hover:border-indigo-200 transition-all group relative overflow-hidden">
               <div className="flex justify-between items-start mb-4">
@@ -373,11 +308,6 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData }) => {
             </div>
           );
         })}
-        {filteredCustomers.length === 0 && (
-          <div className="col-span-full py-20 text-center bg-white rounded-3xl border-2 border-dashed border-slate-200">
-            <p className="text-slate-400 font-bold">No customers found.</p>
-          </div>
-        )}
       </div>
     </div>
   );
