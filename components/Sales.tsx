@@ -18,6 +18,7 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices })
     customerId: '',
     customerName: '',
     date: new Date().toISOString().split('T')[0],
+    dueDate: new Date().toISOString().split('T')[0],
     category: 'General',
     paymentMethod: 'Cash' as PaymentMethod,
     items: [{ productName: '', quantity: 1, unit: 'kg', rate: 0 }] as Partial<SaleItem>[]
@@ -60,6 +61,7 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices })
       customerId: sale.customerId || '',
       customerName: sale.customerName,
       date: new Date().toISOString().split('T')[0],
+      dueDate: sale.dueDate || new Date().toISOString().split('T')[0],
       category: sale.category,
       paymentMethod: sale.paymentMethod,
       items: sale.items.map(item => ({
@@ -92,10 +94,23 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices })
         );
       }
 
+      // Revert stock decrement
+      const updatedProducts = [...prev.products];
+      saleToRemove.items.forEach(item => {
+        const productIndex = updatedProducts.findIndex(p => p.name.toLowerCase() === item.productName.toLowerCase());
+        if (productIndex !== -1 && updatedProducts[productIndex].currentStock !== undefined) {
+          updatedProducts[productIndex] = {
+            ...updatedProducts[productIndex],
+            currentStock: (updatedProducts[productIndex].currentStock || 0) + item.quantity
+          };
+        }
+      });
+
       return {
         ...prev,
         sales: prev.sales.filter(s => s.id !== saleId),
-        customers: updatedCustomers
+        customers: updatedCustomers,
+        products: updatedProducts
       };
     });
   };
@@ -118,6 +133,7 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices })
       id: crypto.randomUUID(),
       invoiceNumber: `INV-${String(data.sales.length + 1).padStart(5, '0')}`,
       date: formData.date,
+      dueDate: formData.paymentMethod === 'Pending' ? formData.dueDate : undefined,
       customerId: formData.customerId || undefined,
       customerName: formData.customerName || 'Walk-in Customer',
       items: finalItems,
@@ -130,10 +146,20 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices })
     };
 
     updateData(prev => {
+      // 1. Update Catalog & Stock
       const newProductsList = [...prev.products];
       finalItems.forEach(item => {
-        const exists = newProductsList.some(p => p.name.toLowerCase() === item.productName.toLowerCase());
-        if (!exists) {
+        const productIndex = newProductsList.findIndex(p => p.name.toLowerCase() === item.productName.toLowerCase());
+        if (productIndex !== -1) {
+          // If product exists and has stock tracking, decrement it
+          if (newProductsList[productIndex].currentStock !== undefined) {
+            newProductsList[productIndex] = {
+              ...newProductsList[productIndex],
+              currentStock: Math.max(0, (newProductsList[productIndex].currentStock || 0) - item.quantity)
+            };
+          }
+        } else {
+          // Add new product if it doesn't exist
           newProductsList.push({
             id: crypto.randomUUID(),
             name: item.productName,
@@ -177,7 +203,7 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices })
       {showAddForm && (
         <div className="bg-white p-8 rounded-3xl shadow-xl border border-slate-200 animate-in fade-in zoom-in duration-300">
           <form onSubmit={handleSubmit} className="space-y-8">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
               <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Select Customer</label>
                 <select className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none bg-slate-50 font-medium" value={formData.customerId} onChange={handleCustomerChange}>
@@ -209,6 +235,12 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices })
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Billing Date</label>
                 <input type="date" required className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none bg-slate-50 font-medium" value={formData.date} onChange={e => setFormData({ ...formData, date: e.target.value })} />
               </div>
+              {formData.paymentMethod === 'Pending' && (
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Expected Due Date</label>
+                  <input type="date" className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none bg-slate-50 font-medium" value={formData.dueDate} onChange={e => setFormData({ ...formData, dueDate: e.target.value })} />
+                </div>
+              )}
               <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Payment Mode</label>
                 <div className="grid grid-cols-3 gap-2">
@@ -280,7 +312,7 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices })
                 )}
               </div>
               <div className="flex items-center space-x-4">
-                <button type="button" onClick={() => { setShowAddForm(false); setFormData({ customerId: '', customerName: '', date: new Date().toISOString().split('T')[0], category: 'General', paymentMethod: 'Cash', items: [{ productName: '', quantity: 1, unit: 'kg', rate: 0 }] }); }} className="px-8 py-4 text-slate-500 font-bold hover:bg-slate-50 rounded-2xl transition-colors">Discard</button>
+                <button type="button" onClick={() => { setShowAddForm(false); setFormData({ customerId: '', customerName: '', date: new Date().toISOString().split('T')[0], dueDate: new Date().toISOString().split('T')[0], category: 'General', paymentMethod: 'Cash', items: [{ productName: '', quantity: 1, unit: 'kg', rate: 0 }] }); }} className="px-8 py-4 text-slate-500 font-bold hover:bg-slate-50 rounded-2xl transition-colors">Discard</button>
                 <button 
                   type="submit" 
                   disabled={formData.paymentMethod === 'Pending' && !formData.customerId}
@@ -301,7 +333,7 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices })
               <tr>
                 <th className="px-8 py-5">Date / Invoice</th>
                 <th className="px-8 py-5">Customer Profile</th>
-                <th className="px-8 py-5">Payment</th>
+                <th className="px-8 py-5">Payment / Due</th>
                 <th className="px-8 py-5 text-right">Amount (₹)</th>
                 <th className="px-8 py-5 text-center">Actions</th>
               </tr>
@@ -325,6 +357,9 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices })
                     }`}>
                       {sale.paymentMethod || 'Cash'}
                     </span>
+                    {sale.dueDate && sale.paymentMethod === 'Pending' && (
+                      <p className="text-[10px] font-bold text-red-500 mt-1">Due: {new Date(sale.dueDate).toLocaleDateString()}</p>
+                    )}
                   </td>
                   <td className="px-8 py-5 text-sm font-black text-slate-800 text-right">₹{sale.totalAmount.toLocaleString()}</td>
                   <td className="px-8 py-5 text-center">

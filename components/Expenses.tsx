@@ -12,6 +12,7 @@ const Expenses: React.FC<ExpensesProps> = ({ data, updateData }) => {
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState({
     date: new Date().toISOString().split('T')[0],
+    dueDate: new Date().toISOString().split('T')[0],
     category: 'Materials',
     description: '',
     amount: ''
@@ -22,6 +23,7 @@ const Expenses: React.FC<ExpensesProps> = ({ data, updateData }) => {
     const newExpense: Expense = {
       id: crypto.randomUUID(),
       date: formData.date,
+      dueDate: formData.dueDate,
       category: formData.category,
       description: formData.description,
       amount: Number(formData.amount) || 0
@@ -35,6 +37,7 @@ const Expenses: React.FC<ExpensesProps> = ({ data, updateData }) => {
     setShowForm(false);
     setFormData({
       date: new Date().toISOString().split('T')[0],
+      dueDate: new Date().toISOString().split('T')[0],
       category: 'Materials',
       description: '',
       amount: ''
@@ -57,15 +60,25 @@ const Expenses: React.FC<ExpensesProps> = ({ data, updateData }) => {
       {showForm && (
         <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-200">
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1">Date</label>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">Entry Date</label>
                 <input
                   type="date"
                   required
                   className="w-full px-4 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-red-500"
                   value={formData.date}
                   onChange={e => setFormData({ ...formData, date: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1">Due Date</label>
+                <input
+                  type="date"
+                  required
+                  className="w-full px-4 py-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-red-500"
+                  value={formData.dueDate}
+                  onChange={e => setFormData({ ...formData, dueDate: e.target.value })}
                 />
               </div>
               <div>
@@ -131,6 +144,7 @@ const Expenses: React.FC<ExpensesProps> = ({ data, updateData }) => {
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase">Date</th>
+                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase">Due Date</th>
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase">Category</th>
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase">Description</th>
                 <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase text-right">Amount</th>
@@ -140,6 +154,9 @@ const Expenses: React.FC<ExpensesProps> = ({ data, updateData }) => {
               {data.expenses.length > 0 ? data.expenses.map((expense) => (
                 <tr key={expense.id} className="hover:bg-slate-50 transition-colors">
                   <td className="px-6 py-4 text-sm text-slate-600">{new Date(expense.date).toLocaleDateString()}</td>
+                  <td className="px-6 py-4 text-sm text-red-500 font-bold">
+                    {expense.dueDate ? new Date(expense.dueDate).toLocaleDateString() : 'N/A'}
+                  </td>
                   <td className="px-6 py-4 text-sm">
                     <span className="px-2 py-1 bg-red-50 rounded-md text-[10px] font-bold text-red-600 uppercase tracking-tighter">{expense.category}</span>
                   </td>
@@ -148,7 +165,7 @@ const Expenses: React.FC<ExpensesProps> = ({ data, updateData }) => {
                 </tr>
               )) : (
                 <tr>
-                  <td colSpan={4} className="px-6 py-12 text-center text-slate-400">No expenses recorded yet.</td>
+                  <td colSpan={5} className="px-6 py-12 text-center text-slate-400">No expenses recorded yet.</td>
                 </tr>
               )}
             </tbody>

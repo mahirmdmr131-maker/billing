@@ -23,6 +23,8 @@ export interface Product {
   name: string;
   defaultRate: number;
   unit: string;
+  currentStock?: number; // Tracking quantity
+  minThreshold?: number; // Alert threshold
 }
 
 export interface Customer {
@@ -51,6 +53,7 @@ export interface Sale {
   id: string;
   invoiceNumber: string;
   date: string;
+  dueDate?: string; // Field to track when payment is expected
   customerId?: string;
   customerName: string;
   items: SaleItem[];
@@ -65,6 +68,7 @@ export interface Sale {
 export interface Expense {
   id: string;
   date: string;
+  dueDate?: string; // Field to track when expense payment is due
   category: string;
   description: string;
   amount: number;
@@ -77,7 +81,8 @@ export type DashboardWidgetType =
   | 'kpi_customers' 
   | 'kpi_dues' 
   | 'chart_performance' 
-  | 'list_activity';
+  | 'list_activity'
+  | 'list_low_stock';
 
 export interface DashboardWidget {
   id: string;

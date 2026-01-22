@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { AppData, DashboardWidget, DashboardWidgetType } from '../types';
+import { AppData, DashboardWidget, DashboardWidgetType, Product } from '../types';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 interface DashboardProps {
@@ -19,6 +19,12 @@ const Dashboard: React.FC<DashboardProps> = ({ data, updateData }) => {
   const totalCustomers = data.customers.length;
   const totalDues = data.customers.reduce((sum, c) => sum + (c.pendingBalance || 0), 0);
 
+  const lowStockProducts = data.products.filter(p => 
+    p.currentStock !== undefined && 
+    p.minThreshold !== undefined && 
+    p.currentStock <= p.minThreshold
+  );
+
   const chartData = Array.from({ length: 7 }).map((_, i) => {
     const d = new Date();
     d.setDate(d.getDate() - (6 - i));
@@ -28,10 +34,6 @@ const Dashboard: React.FC<DashboardProps> = ({ data, updateData }) => {
     return { name: d.toLocaleDateString(undefined, { weekday: 'short' }), sales: daySales, expenses: dayExpenses };
   });
 
-  /**
-   * Fix: Added isMistake: false to expense items to ensure union type consistency 
-   * for act.isMistake access in the render loop.
-   */
   const recentActivities = [
     ...data.sales.map(s => ({ type: 'sale' as const, date: s.date, label: `Sale: ${s.customerName}`, amount: s.totalAmount, id: s.id, isMistake: s.isMistake, createdBy: s.createdBy })),
     ...data.expenses.map(e => ({ type: 'expense' as const, date: e.date, label: e.description, amount: e.amount, id: e.id, isMistake: false }))
@@ -55,7 +57,8 @@ const Dashboard: React.FC<DashboardProps> = ({ data, updateData }) => {
       kpi_customers: 'Total Customers',
       kpi_dues: 'Outstanding Dues',
       chart_performance: 'Weekly Performance',
-      list_activity: 'Recent Activity'
+      list_activity: 'Recent Activity',
+      list_low_stock: 'Low Stock Alerts'
     };
     const widths: Record<DashboardWidgetType, 'full' | 'half' | 'third' | 'two-thirds'> = {
       kpi_sales: 'third',
@@ -64,7 +67,8 @@ const Dashboard: React.FC<DashboardProps> = ({ data, updateData }) => {
       kpi_customers: 'third',
       kpi_dues: 'third',
       chart_performance: 'two-thirds',
-      list_activity: 'third'
+      list_activity: 'third',
+      list_low_stock: 'third'
     };
     const colors: Record<string, string> = {
       kpi_sales: 'indigo',
@@ -107,7 +111,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, updateData }) => {
   const renderWidget = (widget: DashboardWidget) => {
     const widthClass = {
       'full': 'col-span-1 md:col-span-3',
-      'half': 'col-span-1 md:col-span-1.5', // Approximate
+      'half': 'col-span-1 md:col-span-1.5',
       'third': 'col-span-1',
       'two-thirds': 'col-span-1 md:col-span-2'
     }[widget.width];
@@ -159,6 +163,32 @@ const Dashboard: React.FC<DashboardProps> = ({ data, updateData }) => {
             </div>
           </div>
         );
+        case 'list_low_stock': return (
+          <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 h-full">
+            <h3 className="text-lg font-bold text-slate-800 mb-6">{widget.title}</h3>
+            <div className="space-y-3">
+              {lowStockProducts.length > 0 ? lowStockProducts.map((p) => (
+                <div key={p.id} className="flex items-center justify-between p-3 bg-red-50 border border-red-100 rounded-xl">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-8 h-8 rounded-full bg-red-100 text-red-600 flex items-center justify-center font-bold text-[10px]">!</div>
+                    <div>
+                      <p className="font-bold text-sm text-red-800">{p.name}</p>
+                      <p className="text-[10px] text-red-400 font-bold uppercase">Threshold: {p.minThreshold} {p.unit}</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-black text-red-600">{p.currentStock} {p.unit}</p>
+                    <p className="text-[8px] font-black uppercase text-red-300">Left</p>
+                  </div>
+                </div>
+              )) : (
+                <div className="text-center py-8">
+                  <p className="text-sm text-slate-400 font-medium italic">All stock levels are healthy.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        );
         default: return null;
       }
     })();
@@ -185,6 +215,22 @@ const Dashboard: React.FC<DashboardProps> = ({ data, updateData }) => {
 
   return (
     <div className="space-y-8">
+      {/* Stock Alert Banner */}
+      {lowStockProducts.length > 0 && (
+        <div className="bg-red-600 text-white px-8 py-4 rounded-3xl shadow-xl flex items-center justify-between animate-in slide-in-from-top-4 duration-500">
+          <div className="flex items-center space-x-4">
+            <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center animate-pulse">
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+            </div>
+            <div>
+              <p className="font-black uppercase text-xs tracking-widest opacity-80">Critical Inventory Alert</p>
+              <p className="text-lg font-bold">{lowStockProducts.length} items are running low on stock!</p>
+            </div>
+          </div>
+          <p className="hidden md:block text-xs font-black uppercase bg-white/10 px-4 py-2 rounded-xl border border-white/10 tracking-widest">Action Required</p>
+        </div>
+      )}
+
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex-1">
           <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tight mb-1">Welcome Back, {data.currentUser?.username}</h2>
@@ -214,7 +260,8 @@ const Dashboard: React.FC<DashboardProps> = ({ data, updateData }) => {
               { type: 'kpi_customers', label: '+ Customers KPI' },
               { type: 'kpi_dues', label: '+ Dues KPI' },
               { type: 'chart_performance', label: '+ Weekly Chart' },
-              { type: 'list_activity', label: '+ Activity List' }
+              { type: 'list_activity', label: '+ Activity List' },
+              { type: 'list_low_stock', label: '+ Low Stock Alerts' }
             ].map(item => (
               <button 
                 key={item.type} 
