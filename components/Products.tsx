@@ -1,6 +1,6 @@
 
 import React, { useState, useMemo } from 'react';
-import { AppData, Product } from '../types';
+import { AppData, Product, PriceHistoryEntry } from '../types';
 import { IconAdd, IconProducts } from './Icons';
 
 interface ProductsProps {
@@ -12,16 +12,19 @@ const Products: React.FC<ProductsProps> = ({ data, updateData }) => {
   const [showForm, setShowForm] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [viewingHistoryId, setViewingHistoryId] = useState<string | null>(null);
   
   const [formData, setFormData] = useState({
     name: '',
     unit: 'kg',
+    defaultRate: '',
+    wholesaleRate: '',
     currentStock: '',
     minThreshold: ''
   });
 
   const isAdmin = data.currentUser?.role === 'admin';
-  const UNITS = ['kg', 'gram', 'no.', 'pkt', 'box', 'ltr', 'ml'];
+  const UNITS = ['kg', 'gram', 'no.', 'pkt', 'box', 'ltr', 'ml', 'bag', 'tin'];
 
   const filteredProducts = useMemo(() => {
     return data.products.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()));
@@ -29,29 +32,47 @@ const Products: React.FC<ProductsProps> = ({ data, updateData }) => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const productData = {
-      name: formData.name,
-      unit: formData.unit,
-      defaultRate: editingProduct ? editingProduct.defaultRate : 0,
-      currentStock: formData.currentStock === '' ? undefined : Number(formData.currentStock),
-      minThreshold: formData.minThreshold === '' ? undefined : Number(formData.minThreshold)
-    };
+    const newRate = Number(formData.defaultRate) || 0;
+    const newWholesale = Number(formData.wholesaleRate) || 0;
+    const now = new Date().toISOString();
 
-    if (editingProduct) {
-      updateData(prev => ({
-        ...prev,
-        products: prev.products.map(p => p.id === editingProduct.id ? { ...p, ...productData } : p)
-      }));
-    } else {
-      const newProduct: Product = {
-        id: crypto.randomUUID(),
-        ...productData
-      };
-      updateData(prev => ({
-        ...prev,
-        products: [newProduct, ...prev.products]
-      }));
-    }
+    updateData(prev => {
+      let updatedProducts;
+      if (editingProduct) {
+        updatedProducts = prev.products.map(p => {
+          if (p.id === editingProduct.id) {
+            const history = [...(p.priceHistory || [])];
+            if (p.defaultRate !== newRate) {
+              history.unshift({ rate: p.defaultRate, date: now });
+            }
+            return {
+              ...p,
+              name: formData.name,
+              unit: formData.unit,
+              defaultRate: newRate,
+              wholesaleRate: newWholesale,
+              currentStock: formData.currentStock === '' ? undefined : Number(formData.currentStock),
+              minThreshold: formData.minThreshold === '' ? undefined : Number(formData.minThreshold),
+              priceHistory: history
+            };
+          }
+          return p;
+        });
+      } else {
+        const newProduct: Product = {
+          id: crypto.randomUUID(),
+          name: formData.name,
+          unit: formData.unit,
+          defaultRate: newRate,
+          wholesaleRate: newWholesale,
+          currentStock: formData.currentStock === '' ? undefined : Number(formData.currentStock),
+          minThreshold: formData.minThreshold === '' ? undefined : Number(formData.minThreshold),
+          priceHistory: []
+        };
+        updatedProducts = [newProduct, ...prev.products];
+      }
+      return { ...prev, products: updatedProducts };
+    });
     closeForm();
   };
 
@@ -60,6 +81,8 @@ const Products: React.FC<ProductsProps> = ({ data, updateData }) => {
     setFormData({
       name: product.name,
       unit: product.unit,
+      defaultRate: product.defaultRate.toString(),
+      wholesaleRate: product.wholesaleRate?.toString() || '',
       currentStock: product.currentStock?.toString() || '',
       minThreshold: product.minThreshold?.toString() || ''
     });
@@ -69,7 +92,7 @@ const Products: React.FC<ProductsProps> = ({ data, updateData }) => {
   const closeForm = () => {
     setShowForm(false);
     setEditingProduct(null);
-    setFormData({ name: '', unit: 'kg', currentStock: '', minThreshold: '' });
+    setFormData({ name: '', unit: 'kg', defaultRate: '', wholesaleRate: '', currentStock: '', minThreshold: '' });
   };
 
   const deleteProduct = (id: string) => {
@@ -107,6 +130,7 @@ const Products: React.FC<ProductsProps> = ({ data, updateData }) => {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {filteredProducts.map(product => {
           const isLowStock = product.currentStock !== undefined && product.minThreshold !== undefined && product.currentStock <= product.minThreshold;
+          
           return (
             <div key={product.id} className={`bg-white p-6 rounded-[32px] shadow-sm border transition-all group relative overflow-hidden ${isLowStock ? 'border-rose-200 bg-rose-50/20' : 'border-slate-200 hover:shadow-xl hover:border-indigo-200'}`}>
               <div className="flex justify-between items-start mb-6">
@@ -114,6 +138,13 @@ const Products: React.FC<ProductsProps> = ({ data, updateData }) => {
                   <IconProducts className="w-8 h-8" />
                 </div>
                 <div className="flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button 
+                    onClick={() => setViewingHistoryId(viewingHistoryId === product.id ? null : product.id)} 
+                    className={`p-2 rounded-xl transition-all ${viewingHistoryId === product.id ? 'bg-indigo-600 text-white' : 'bg-slate-50 text-slate-400 hover:text-indigo-600'}`}
+                    title="View Price History"
+                  >
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                  </button>
                   <button onClick={() => startEdit(product)} className="p-2 text-slate-400 hover:text-indigo-600 bg-slate-50 rounded-xl" title="Edit Catalog Info">
                     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                   </button>
@@ -124,19 +155,44 @@ const Products: React.FC<ProductsProps> = ({ data, updateData }) => {
                   )}
                 </div>
               </div>
+
               <h4 className="text-xl font-black text-slate-800 mb-2 truncate uppercase tracking-tight">{product.name}</h4>
-              <div className="space-y-2 mb-4">
-                <div className="flex justify-between items-center text-[10px]">
-                  <span className="text-slate-400 font-black uppercase tracking-widest">Base Unit</span>
-                  <span className="font-black text-slate-800 uppercase">{product.unit}</span>
+              
+              <div className="grid grid-cols-2 gap-2 mb-4">
+                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                  <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Retail</p>
+                  <p className="font-black text-indigo-600 text-sm">₹{product.defaultRate}/{product.unit}</p>
                 </div>
-                <div className="flex justify-between items-center text-[10px]">
-                  <span className="text-slate-400 font-black uppercase tracking-widest">Current Stock</span>
-                  <span className={`font-black uppercase ${isLowStock ? 'text-rose-600 animate-pulse' : 'text-slate-800'}`}>
-                    {product.currentStock !== undefined ? `${product.currentStock} ${product.unit}` : 'Untracked'}
-                  </span>
+                <div className="bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                  <p className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Wholesale</p>
+                  <p className="font-black text-emerald-600 text-sm">₹{product.wholesaleRate || product.defaultRate}/{product.unit}</p>
                 </div>
               </div>
+
+              <div className="flex justify-between items-center px-2">
+                <span className="text-[9px] text-slate-400 font-black uppercase tracking-widest">In Stock</span>
+                <span className={`text-[10px] font-black uppercase ${isLowStock ? 'text-rose-600' : 'text-slate-800'}`}>
+                  {product.currentStock !== undefined ? `${product.currentStock} ${product.unit}` : 'Untracked'}
+                </span>
+              </div>
+
+              {viewingHistoryId === product.id && (
+                <div className="mt-4 pt-4 border-t border-slate-100 animate-in slide-in-from-top-2 duration-300">
+                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-3">Rate Timeline</p>
+                  <div className="space-y-2 max-h-32 overflow-y-auto pr-1">
+                    <div className="flex justify-between items-center bg-indigo-50 p-2 rounded-lg border border-indigo-100">
+                        <span className="text-[10px] font-black text-indigo-600 uppercase">Current</span>
+                        <span className="text-[10px] font-black text-indigo-700">₹{product.defaultRate}</span>
+                    </div>
+                    {product.priceHistory?.map((h, i) => (
+                      <div key={i} className="flex justify-between items-center bg-slate-50 p-2 rounded-lg border border-slate-100 opacity-70">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase">{new Date(h.date).toLocaleDateString()}</span>
+                        <span className="text-[10px] font-black text-slate-600">₹{h.rate}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           );
         })}
@@ -148,7 +204,7 @@ const Products: React.FC<ProductsProps> = ({ data, updateData }) => {
             <div className="bg-indigo-600 px-8 py-6 text-white flex justify-between items-center">
               <div>
                 <h3 className="text-xl font-black uppercase tracking-tight">{editingProduct ? 'Edit Catalog' : 'New Product'}</h3>
-                <p className="text-[10px] text-indigo-100 font-bold uppercase tracking-widest mt-1">Inventory Management</p>
+                <p className="text-[10px] text-indigo-100 font-bold uppercase tracking-widest mt-1">Enterprise Price Tiers</p>
               </div>
               <button onClick={closeForm} className="p-2 hover:bg-white/10 rounded-full transition-colors"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
             </div>
@@ -160,19 +216,29 @@ const Products: React.FC<ProductsProps> = ({ data, updateData }) => {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                     <div>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Retail Rate (₹)</label>
+                      <input type="number" step="any" required placeholder="0.00" value={formData.defaultRate} onChange={e => setFormData({ ...formData, defaultRate: e.target.value })} className="w-full px-4 py-3 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none font-black text-indigo-600 uppercase" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1">Wholesale Rate (₹)</label>
+                      <input type="number" step="any" required placeholder="0.00" value={formData.wholesaleRate} onChange={e => setFormData({ ...formData, wholesaleRate: e.target.value })} className="w-full px-4 py-3 border border-emerald-100 bg-emerald-50/30 rounded-2xl focus:ring-2 focus:ring-emerald-500 outline-none font-black text-emerald-600 uppercase" />
+                    </div>
+                </div>
+                <div className="grid grid-cols-3 gap-4">
+                    <div>
                       <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Selling Unit</label>
                       <select value={formData.unit} onChange={e => setFormData({ ...formData, unit: e.target.value })} className="w-full px-4 py-3 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none font-bold uppercase">
                         {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
                       </select>
                     </div>
                     <div>
-                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Alert Threshold</label>
-                      <input type="number" placeholder="Low stock at..." value={formData.minThreshold} onChange={e => setFormData({ ...formData, minThreshold: e.target.value })} className="w-full px-4 py-3 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none font-bold uppercase" />
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Initial Stock</label>
+                      <input type="number" placeholder="Untracked" value={formData.currentStock} onChange={e => setFormData({ ...formData, currentStock: e.target.value })} className="w-full px-4 py-3 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none font-bold uppercase" />
                     </div>
-                </div>
-                <div>
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Initial Stock Level</label>
-                  <input type="number" placeholder="Leave empty for untracked" value={formData.currentStock} onChange={e => setFormData({ ...formData, currentStock: e.target.value })} className="w-full px-4 py-3 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none font-bold uppercase" />
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Alert Qty</label>
+                      <input type="number" placeholder="Alert at..." value={formData.minThreshold} onChange={e => setFormData({ ...formData, minThreshold: e.target.value })} className="w-full px-4 py-3 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none font-bold uppercase" />
+                    </div>
                 </div>
               </div>
               <div className="flex gap-4 pt-6">

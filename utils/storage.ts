@@ -9,7 +9,8 @@ const DEFAULT_RECYCLE_BIN: RecycleBin = {
   sales: [],
   expenses: [],
   customers: [],
-  products: []
+  products: [],
+  futureOrders: []
 };
 
 const DEFAULT_WIDGETS: DashboardWidget[] = [
@@ -29,6 +30,7 @@ const DEFAULT_DATA: AppData = {
   products: [],
   upiQrs: [],
   sales: [],
+  futureOrders: [],
   expenses: [],
   recycleBin: DEFAULT_RECYCLE_BIN,
   dashboardWidgets: DEFAULT_WIDGETS,
@@ -90,8 +92,10 @@ export const loadData = (): AppData => {
     if (!data.products) data.products = [];
     if (!data.upiQrs) data.upiQrs = [];
     if (!data.sales) data.sales = [];
+    if (!data.futureOrders) data.futureOrders = [];
     if (!data.expenses) data.expenses = [];
     if (!data.recycleBin) data.recycleBin = DEFAULT_RECYCLE_BIN;
+    if (!data.recycleBin.futureOrders) data.recycleBin.futureOrders = [];
     if (!data.theme) data.theme = 'indigo';
     if (!data.snapshots) data.snapshots = [];
     if (!data.dashboardWidgets) data.dashboardWidgets = DEFAULT_WIDGETS;
@@ -103,6 +107,12 @@ export const loadData = (): AppData => {
     data.customers = data.customers.map((c: any) => ({
       ...c,
       pendingBalance: c.pendingBalance || 0
+    }));
+
+    // Ensure priceHistory exists for all products
+    data.products = data.products.map((p: any) => ({
+      ...p,
+      priceHistory: p.priceHistory || []
     }));
 
     if (data.currentUser) {

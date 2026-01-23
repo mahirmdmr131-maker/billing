@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { AppData, BusinessInfo, AppTheme, User, Sale, Product, Customer, Expense, UpiQr } from '../types';
-import { initGoogleAuth, uploadToDrive } from '../utils/googleDrive';
+import { initGoogleAuth, uploadToDrive, getBackupInfo, downloadFromDrive } from '../utils/googleDrive';
 import { initOneDriveAuth, uploadToOneDrive } from '../utils/oneDrive';
 
 interface SettingsProps {
@@ -21,8 +21,10 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
   const [resetStaffPassword, setResetStaffPassword] = useState('');
   const [googleEmail, setGoogleEmail] = useState<string | null>(null);
   const [syncingCloud, setSyncingCloud] = useState<string | null>(null);
+  const [driveBackupStatus, setDriveBackupStatus] = useState<{ id: string; modifiedTime: string } | null>(null);
+  const [isCheckingDrive, setIsCheckingDrive] = useState(false);
   const [showRecycleBin, setShowRecycleBin] = useState(false);
-  const [recycleTab, setRecycleTab] = useState<'sales' | 'customers' | 'products' | 'expenses'>('sales');
+  const [recycleTab, setRecycleTab] = useState<'sales' | 'customers' | 'products' | 'expenses' | 'futureOrders'>('sales');
   const [isInIframe, setIsInIframe] = useState(false);
   const [newUpiQr, setNewUpiQr] = useState({ name: '', imageData: '' });
   
@@ -70,8 +72,36 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
     initGoogleAuth((token, email) => {
       if (email) setGoogleEmail(email);
       updateData(prev => ({ ...prev, isDriveConnected: true }));
+      checkDriveBackup();
       alert('Google Drive connected successfully!');
     });
+  };
+
+  const checkDriveBackup = async () => {
+    if (!data.isDriveConnected) return;
+    setIsCheckingDrive(true);
+    const info = await getBackupInfo(data.backupFolderName);
+    setDriveBackupStatus(info);
+    setIsCheckingDrive(false);
+  };
+
+  const restoreFromDrive = async () => {
+    if (!driveBackupStatus) return;
+    if (!confirm('This will replace ALL local data with the backup from Google Drive. Are you sure?')) return;
+    
+    setSyncingCloud('drive_restore');
+    const restoredData = await downloadFromDrive(driveBackupStatus.id);
+    setSyncingCloud(null);
+
+    if (restoredData) {
+      updateData(() => ({
+        ...restoredData,
+        currentUser: data.currentUser // Preserve session
+      }));
+      alert('System restored successfully from Google Drive!');
+    } else {
+      alert('Failed to restore from Google Drive. Please check your connection.');
+    }
   };
 
   const handleOneDriveConnect = () => {
@@ -85,8 +115,12 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
     setSyncingCloud('drive');
     const ok = await uploadToDrive(data, data.backupFolderName);
     setSyncingCloud(null);
-    if (ok) alert('Backup successfully pushed to Google Drive.');
-    else alert('Google Drive sync failed. Please reconnect.');
+    if (ok) {
+      alert('Backup successfully pushed to Google Drive.');
+      checkDriveBackup();
+    } else {
+      alert('Google Drive sync failed. Please reconnect.');
+    }
   };
 
   const syncOneDriveNow = async () => {
@@ -259,11 +293,11 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
     if (!confirm('EMPTY ENTIRE RECYCLE BIN? This action is irreversible.')) return;
     updateData(prev => ({
       ...prev,
-      recycleBin: { sales: [], customers: [], products: [], expenses: [] }
+      recycleBin: { sales: [], customers: [], products: [], expenses: [], futureOrders: [] }
     }));
   };
 
-  const binTotal = data.recycleBin.sales.length + data.recycleBin.customers.length + data.recycleBin.products.length + data.recycleBin.expenses.length;
+  const binTotal = data.recycleBin.sales.length + data.recycleBin.customers.length + data.recycleBin.products.length + data.recycleBin.expenses.length + (data.recycleBin.futureOrders?.length || 0);
 
   return (
     <div className="max-w-4xl mx-auto space-y-12 pb-20">
@@ -344,24 +378,45 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
                     </svg>
                  </div>
                  <h4 className="font-black text-slate-800 uppercase text-xs tracking-widest mb-1">Google Drive</h4>
-                 <p className="text-[10px] text-slate-500 font-bold uppercase mb-4">
-                    {data.isDriveConnected ? (googleEmail ? `Linked: ${googleEmail}` : 'Connected') : 'Not connected to Drive'}
-                 </p>
+                 <div className="text-[10px] text-slate-500 font-bold uppercase mb-4 space-y-1">
+                    <p>{data.isDriveConnected ? (googleEmail ? `Linked: ${googleEmail}` : 'Connected') : 'Not connected to Drive'}</p>
+                    {data.isDriveConnected && (
+                      <div className="flex flex-col items-center">
+                        {isCheckingDrive ? (
+                           <span className="animate-pulse text-indigo-500">Checking for backups...</span>
+                        ) : driveBackupStatus ? (
+                           <span className="text-emerald-600">Last Backup: {new Date(driveBackupStatus.modifiedTime).toLocaleString()}</span>
+                        ) : (
+                           <span className="text-slate-400">No cloud backup found</span>
+                        )}
+                        <button onClick={checkDriveBackup} className="mt-1 text-[8px] underline text-indigo-500 hover:text-indigo-700">Refresh Status</button>
+                      </div>
+                    )}
+                 </div>
                  
-                 <div className="mt-auto w-full space-y-2">
+                 <div className="mt-auto w-full grid grid-cols-1 gap-2">
                     {!data.isDriveConnected ? (
                       <button onClick={handleGoogleConnect} className="w-full py-2 bg-indigo-600 text-white text-[10px] font-black uppercase rounded-xl shadow hover:bg-indigo-700 transition-all">
                         Connect Account
                       </button>
                     ) : (
                       <>
-                        <button 
-                          disabled={syncingCloud === 'drive'}
-                          onClick={syncDriveNow} 
-                          className="w-full py-2 bg-emerald-600 text-white text-[10px] font-black uppercase rounded-xl shadow hover:bg-emerald-700 transition-all disabled:opacity-50"
-                        >
-                          {syncingCloud === 'drive' ? 'Backing up...' : 'Sync Now'}
-                        </button>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button 
+                            disabled={syncingCloud === 'drive'}
+                            onClick={syncDriveNow} 
+                            className="py-2 bg-indigo-600 text-white text-[10px] font-black uppercase rounded-xl shadow hover:bg-indigo-700 transition-all disabled:opacity-50"
+                          >
+                            {syncingCloud === 'drive' ? 'Backing up...' : 'Push Backup'}
+                          </button>
+                          <button 
+                            disabled={!driveBackupStatus || syncingCloud === 'drive_restore'}
+                            onClick={restoreFromDrive} 
+                            className="py-2 bg-emerald-600 text-white text-[10px] font-black uppercase rounded-xl shadow hover:bg-emerald-700 transition-all disabled:opacity-30"
+                          >
+                            {syncingCloud === 'drive_restore' ? 'Restoring...' : 'Restore Now'}
+                          </button>
+                        </div>
                         <button 
                           onClick={() => updateData(prev => ({ ...prev, isDriveConnected: false }))} 
                           className="w-full py-2 bg-slate-200 text-slate-600 text-[10px] font-black uppercase rounded-xl hover:bg-red-50 hover:text-red-600 transition-all"
@@ -447,7 +502,7 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
           <p className="text-sm text-slate-500 font-medium">Update your login credentials.</p>
         </div>
         <div className="p-8">
-          <form onSubmit={handleUpdateUpdatePassword} className="max-w-md space-y-4">
+          <form onSubmit={handleUpdateOwnPassword} className="max-w-md space-y-4">
             <div>
               <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Current Password</label>
               <input 
@@ -638,7 +693,7 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
 
       {/* Recycle Bin Modal */}
       {showRecycleBin && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-white w-full max-w-4xl max-h-[90vh] rounded-3xl shadow-2xl overflow-hidden flex flex-col">
             <div className="bg-slate-900 px-8 py-6 text-white flex justify-between items-center">
               <div>
@@ -661,19 +716,19 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
             </div>
 
             <div className="flex border-b border-slate-100 no-print">
-               {(['sales', 'customers', 'products', 'expenses'] as const).map(tab => (
+               {(['sales', 'customers', 'products', 'expenses', 'futureOrders'] as const).map(tab => (
                  <button 
                   key={tab} 
                   onClick={() => setRecycleTab(tab)}
                   className={`flex-1 py-4 text-xs font-black uppercase tracking-widest transition-all border-b-2 ${recycleTab === tab ? 'border-indigo-600 text-indigo-600 bg-indigo-50/30' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
                  >
-                   {tab} ({data.recycleBin[tab].length})
+                   {tab} ({data.recycleBin[tab]?.length || 0})
                  </button>
                ))}
             </div>
 
             <div className="flex-1 overflow-y-auto p-8">
-               {data.recycleBin[recycleTab].length > 0 ? (
+               {data.recycleBin[recycleTab] && data.recycleBin[recycleTab].length > 0 ? (
                  <div className="space-y-4">
                     {data.recycleBin[recycleTab].map((item: any) => (
                       <div key={item.id} className="flex items-center justify-between p-6 bg-slate-50 border border-slate-200 rounded-2xl hover:border-indigo-200 transition-all group">
@@ -682,12 +737,14 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
                                 {recycleTab === 'sales' ? `Invoice: ${item.invoiceNumber}` : 
                                  recycleTab === 'customers' ? `Customer: ${item.name}` :
                                  recycleTab === 'products' ? `Product: ${item.name}` :
+                                 recycleTab === 'futureOrders' ? `Order: ${item.orderNumber} (${item.customerName})` :
                                  `Expense: ${item.description}`}
                             </p>
                             <p className="text-[10px] font-bold text-slate-400 uppercase mt-1">
                                 {recycleTab === 'sales' ? `Amount: ₹${item.totalAmount}` : 
                                  recycleTab === 'customers' ? `Phone: ${item.phone}` :
                                  recycleTab === 'products' ? `Stock: ${item.currentStock || 0}` :
+                                 recycleTab === 'futureOrders' ? `Amount: ₹${item.totalAmount}` :
                                  `Amount: ₹${item.amount}`}
                                  <span className="mx-2 opacity-30">|</span>
                                  Deleted: {new Date(item.deletedAt).toLocaleString()}
@@ -729,8 +786,5 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
     </div>
   );
 };
-
-// Internal function helper since original code had a typo in handleSubmit
-const handleUpdateUpdatePassword = (e: React.FormEvent) => e.preventDefault(); 
 
 export default Settings;

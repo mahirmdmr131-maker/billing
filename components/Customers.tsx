@@ -11,6 +11,7 @@ interface CustomersProps {
 
 type SummaryPeriod = 'week' | 'month' | 'year';
 type IndividualPrintMode = 'full' | 'sales_only' | 'pending_only' | 'summary';
+type PrintSize = 'A4' | 'Thermal80' | 'Thermal58';
 
 const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInvoices }) => {
   const [showForm, setShowForm] = useState(false);
@@ -28,6 +29,7 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
   // Individual Print Config
   const [indivPrintMode, setIndivPrintMode] = useState<IndividualPrintMode>('full');
   const [indivIncludeDues, setIndivIncludeDues] = useState(true);
+  const [printSize, setPrintSize] = useState<PrintSize>('A4');
 
   const [formData, setFormData] = useState({
     name: '',
@@ -39,7 +41,7 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
 
   const isAdmin = data.currentUser?.role === 'admin';
 
-  // Summary Calculations for Global Dashboard
+  // HOOKS MUST BE AT TOP LEVEL - Ensuring no null access
   const summaryData = useMemo(() => {
     const now = new Date();
     const todayStr = now.toISOString().split('T')[0];
@@ -54,7 +56,7 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
     };
     const weekStartStr = getWeekStart();
 
-    const validSales = data.sales.filter(s => !s.isMistake);
+    const validSales = (data.sales || []).filter(s => !s.isMistake);
     let filtered;
     
     if (summaryPeriod === 'week') {
@@ -69,10 +71,9 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
     return { total, count: filtered.length, items: filtered };
   }, [data.sales, summaryPeriod]);
 
-  // Global Customer Summary Table (Total Sales vs Pending)
   const globalCustomerSummary = useMemo(() => {
-    return data.customers.map(c => {
-      const totalSales = data.sales
+    return (data.customers || []).map(c => {
+      const totalSales = (data.sales || [])
         .filter(s => s.customerId === c.id && !s.isMistake)
         .reduce((sum, s) => sum + s.totalAmount, 0);
       return {
@@ -83,11 +84,20 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
   }, [data.customers, data.sales]);
 
   const filteredCustomers = useMemo(() => {
-    return data.customers.filter(c => 
+    return (data.customers || []).filter(c => 
       c.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
       c.phone.includes(searchTerm)
     );
   }, [data.customers, searchTerm]);
+
+  const customerSales = useMemo(() => {
+    if (!viewCustomer) return [];
+    let filtered = (data.sales || []).filter(s => s.customerId === viewCustomer.id && !s.isMistake);
+    if (indivPrintMode === 'pending_only') {
+      filtered = filtered.filter(s => s.paymentMethod === 'Pending');
+    }
+    return filtered.sort((a, b) => b.date.localeCompare(a.date));
+  }, [data.sales, viewCustomer, indivPrintMode]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -170,13 +180,14 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
     setShowForm(true);
   };
 
-  const handleQuickPrint = (customer: Customer) => {
-    setIndivPrintMode('full');
+  const handleQuickPrint = (customer: Customer, mode: IndividualPrintMode = 'full', size: PrintSize = 'A4') => {
+    setIndivPrintMode(mode);
+    setPrintSize(size);
     setIndivIncludeDues(true);
     setViewCustomer(customer);
     setTimeout(() => {
       window.print();
-    }, 200);
+    }, 500);
   };
 
   const handleGlobalSummaryPrint = () => {
@@ -184,7 +195,7 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
     setTimeout(() => {
       window.print();
       setIsPrintingGlobalSummary(false);
-    }, 200);
+    }, 500);
   };
 
   const closeForm = () => {
@@ -215,17 +226,12 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
   };
 
   if (viewCustomer) {
-    const customerSales = useMemo(() => {
-      let filtered = data.sales.filter(s => s.customerId === viewCustomer.id && !s.isMistake);
-      if (indivPrintMode === 'pending_only') {
-        filtered = filtered.filter(s => s.paymentMethod === 'Pending');
-      }
-      return filtered.sort((a, b) => b.date.localeCompare(a.date));
-    }, [data.sales, viewCustomer.id, indivPrintMode]);
+    const isThermal = printSize === 'Thermal80' || printSize === 'Thermal58';
+    const isThermal58 = printSize === 'Thermal58';
 
     return (
       <div className="space-y-6 animate-in fade-in duration-300">
-        <div className="no-print flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-[32px] border border-slate-200">
+        <div className="no-print flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-[32px] border border-slate-200 shadow-sm">
           <button onClick={() => setViewCustomer(null)} className="text-indigo-600 font-bold flex items-center space-x-2 bg-indigo-50 px-4 py-2 rounded-xl hover:bg-indigo-100 transition-colors">
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
             <span>Back to List</span>
@@ -233,19 +239,24 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
           
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200">
-              <button 
-                onClick={() => setIndivPrintMode('full')} 
-                className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${indivPrintMode === 'full' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}
-              >Full</button>
-              <button 
-                onClick={() => setIndivPrintMode('sales_only')} 
-                className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${indivPrintMode === 'sales_only' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}
-              >All Sales</button>
-              <button 
-                onClick={() => setIndivPrintMode('pending_only')} 
-                className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${indivPrintMode === 'pending_only' ? 'bg-white text-rose-600 shadow-sm' : 'text-slate-400'}`}
-              >Unpaid Only</button>
+              {(['full', 'sales_only', 'pending_only', 'summary'] as IndividualPrintMode[]).map(m => (
+                <button 
+                  key={m}
+                  onClick={() => setIndivPrintMode(m)} 
+                  className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${indivPrintMode === m ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}
+                >{m.replace('_', ' ')}</button>
+              ))}
             </div>
+
+            <select 
+              value={printSize} 
+              onChange={(e) => setPrintSize(e.target.value as PrintSize)}
+              className="px-4 py-1.5 rounded-xl text-[10px] font-black uppercase border bg-white border-slate-200 text-slate-600 focus:ring-2 focus:ring-indigo-500 outline-none"
+            >
+              <option value="A4">A4 Size</option>
+              <option value="Thermal80">80mm Thermal</option>
+              <option value="Thermal58">58mm Thermal</option>
+            </select>
 
             <button 
               onClick={() => setIndivIncludeDues(!indivIncludeDues)}
@@ -256,128 +267,171 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
 
             <button 
               onClick={() => window.print()}
-              className="flex items-center space-x-2 bg-slate-900 text-white px-6 py-2 rounded-xl font-bold hover:bg-slate-800 transition-all active:scale-95"
+              className="flex items-center space-x-2 bg-slate-900 text-white px-6 py-2 rounded-xl font-bold hover:bg-black transition-all active:scale-95 shadow-lg"
             >
               <IconPrint />
-              <span>Print Mode</span>
+              <span>Print</span>
             </button>
           </div>
         </div>
         
-        <div className="print-area bg-white shadow-sm rounded-3xl p-0 overflow-hidden">
-          <div className={`bg-indigo-900 rounded-3xl p-8 text-white shadow-xl flex flex-col md:flex-row justify-between gap-6 relative overflow-hidden print:bg-white print:text-black print:shadow-none print:border-b-2 print:border-black print:rounded-none`}>
-            <div className="hidden print:block text-center w-full mb-6">
-               {data.business?.logo && <img src={data.business.logo} alt="Logo" className="w-24 h-24 mx-auto mb-2 object-contain" />}
-               <h1 className="text-xl font-black uppercase">{data.business?.name}</h1>
-               <p className="text-[10px] opacity-70 italic">{data.business?.tagline}</p>
-               <p className="text-[10px] font-bold mt-2">{data.business?.address} | Ph: {data.business?.phone}</p>
-               <h2 className="text-lg font-black mt-4 border-y border-black py-1 uppercase tracking-widest">
-                {indivPrintMode === 'sales_only' ? 'Complete Sales Registry' : 
-                 indivPrintMode === 'pending_only' ? 'Pending Dues Ledger' : 'Account Statement'}
-               </h2>
-            </div>
-
-            <div className="relative z-10 print:w-1/2 print:text-left">
-              <p className="hidden print:block text-[8px] font-black uppercase opacity-50">Profile</p>
-              <h2 className="text-3xl font-black mb-2 print:text-xl uppercase">{viewCustomer.name}</h2>
-              <div className="flex flex-wrap gap-4 text-sm font-medium opacity-80 print:text-[10px] print:opacity-100">
-                <span>📞 {viewCustomer.phone}</span>
-                {viewCustomer.email && <span>✉️ {viewCustomer.email}</span>}
-                {viewCustomer.gst && <span className="px-2 py-0.5 bg-white/10 rounded text-[10px] uppercase print:border print:border-black print:text-black font-bold">GST: {viewCustomer.gst}</span>}
+        <div className={`print-area-wrapper transition-all duration-300 ${isThermal58 ? 'max-w-[280px]' : printSize === 'Thermal80' ? 'max-w-[360px]' : 'max-w-full'} mx-auto`}>
+          <div className={`bg-white shadow-sm rounded-3xl p-0 overflow-hidden border border-slate-100 print:border-none print:shadow-none print:rounded-none`}>
+            <div className={`bg-indigo-900 rounded-3xl p-8 text-white shadow-xl flex flex-col md:flex-row justify-between gap-6 relative overflow-hidden print:bg-white print:text-black print:shadow-none print:border-b-2 print:border-black print:rounded-none ${isThermal ? 'print:p-2' : ''}`}>
+              <div className="hidden print:block text-center w-full mb-6">
+                 {data.business?.logo && <img src={data.business.logo} alt="Logo" className={`${isThermal ? 'w-24' : 'w-32'} mx-auto mb-2 object-contain`} />}
+                 <h1 className={`${isThermal ? 'text-lg' : 'text-2xl'} font-black uppercase`}>{data.business?.name}</h1>
+                 <p className="text-[10px] opacity-70 italic">{data.business?.tagline}</p>
+                 <p className="text-[10px] font-bold mt-2">{data.business?.address} | Ph: {data.business?.phone}</p>
+                 <h2 className={`${isThermal ? 'text-sm' : 'text-lg'} font-black mt-4 border-y border-black py-1 uppercase tracking-widest`}>
+                  {indivPrintMode === 'sales_only' ? 'Sales Registry' : 
+                   indivPrintMode === 'pending_only' ? 'Pending Dues' : 
+                   indivPrintMode === 'summary' ? 'Account Summary' : 'Account Statement'}
+                 </h2>
               </div>
-              <p className="mt-4 text-xs opacity-60 max-w-md print:opacity-100 print:text-[8px] font-medium">{viewCustomer.address || 'Address not listed'}</p>
-            </div>
-            
-            {(indivIncludeDues || !window.matchMedia('print').matches) && (
-              <div className={`text-right relative z-10 flex flex-col justify-center print:w-1/2 ${!indivIncludeDues ? 'print:hidden' : ''}`}>
-                <div className="bg-white/10 p-5 rounded-2xl border border-white/10 backdrop-blur-sm print:bg-slate-50 print:border-black print:text-black">
-                    <p className="text-[10px] uppercase font-black opacity-50 tracking-[0.2em] mb-1 print:opacity-100">Net Outstanding</p>
-                    <p className={`text-5xl font-black print:text-3xl ${viewCustomer.pendingBalance > 0 ? 'text-red-400 print:text-black' : 'text-emerald-400 print:text-black'}`}>₹{viewCustomer.pendingBalance.toLocaleString()}</p>
-                    <p className="hidden print:block text-[8px] font-bold mt-2">Ledger Extracted: {new Date().toLocaleDateString()}</p>
+
+              <div className="relative z-10 print:w-full print:text-left">
+                <p className="hidden print:block text-[8px] font-black uppercase opacity-50">Customer Details</p>
+                <h2 className={`${isThermal ? 'text-xl' : 'text-3xl'} font-black mb-2 uppercase`}>{viewCustomer.name}</h2>
+                <div className="flex flex-wrap gap-4 text-sm font-medium opacity-80 print:text-[10px] print:opacity-100">
+                  <span>📞 {viewCustomer.phone}</span>
+                  {viewCustomer.gst && <span className="px-2 py-0.5 bg-white/10 rounded text-[10px] uppercase print:border print:border-black print:text-black font-bold">GST: {viewCustomer.gst}</span>}
                 </div>
               </div>
-            )}
-          </div>
+              
+              {(indivIncludeDues || !window.matchMedia('print').matches) && (
+                <div className={`text-right relative z-10 flex flex-col justify-center print:w-full print:text-center print:mt-4 ${!indivIncludeDues ? 'print:hidden' : ''}`}>
+                  <div className="bg-white/10 p-5 rounded-2xl border border-white/10 backdrop-blur-sm print:bg-slate-50 print:border-black print:text-black">
+                      <p className="text-[10px] uppercase font-black opacity-50 tracking-[0.2em] mb-1 print:opacity-100">Net Outstanding</p>
+                      <p className={`${isThermal ? 'text-3xl' : 'text-5xl'} font-black ${viewCustomer.pendingBalance > 0 ? 'text-red-400 print:text-black' : 'text-emerald-400 print:text-black'}`}>₹{viewCustomer.pendingBalance.toLocaleString()}</p>
+                      <p className="hidden print:block text-[8px] font-bold mt-2">Statement Date: {new Date().toLocaleDateString()}</p>
+                  </div>
+                </div>
+              )}
+            </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-8 p-8 pt-0">
-              <div className="lg:col-span-1 space-y-6 no-print">
-                  <div className="bg-slate-50 rounded-3xl p-8 border border-slate-100">
-                      <h4 className="text-sm font-black text-slate-800 uppercase tracking-widest mb-6 border-b border-slate-200 pb-4">Record Collection</h4>
-                      <form onSubmit={handleRecordPayment} className="space-y-4">
-                          <div>
-                              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Collection Date</label>
-                              <input type="date" required value={paymentDate} onChange={e => setPaymentDate(e.target.value)} className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none font-bold" />
-                          </div>
-                          <div>
-                              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Collected Amount (₹)</label>
-                              <input type="number" required value={paymentAmount} onChange={e => setPaymentAmount(e.target.value)} className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none font-black text-lg" placeholder="0.00" />
-                          </div>
-                          <button type="submit" className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl shadow-lg transition-all active:scale-95 text-xs uppercase tracking-widest">Update Balance</button>
-                      </form>
-                  </div>
-              </div>
+            <div className={`grid grid-cols-1 ${isThermal ? '' : 'lg:grid-cols-3'} gap-8 mt-8 p-8 pt-0 print:p-2`}>
+                <div className={`lg:col-span-1 space-y-6 no-print`}>
+                    <div className="bg-slate-50 rounded-3xl p-8 border border-slate-100 shadow-sm">
+                        <h4 className="text-sm font-black text-slate-800 uppercase tracking-widest mb-6 border-b border-slate-200 pb-4">Quick Collection</h4>
+                        <form onSubmit={handleRecordPayment} className="space-y-4">
+                            <div>
+                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Collection Date</label>
+                                <input type="date" required value={paymentDate} onChange={e => setPaymentDate(e.target.value)} className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none font-bold" />
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Collected Amount (₹)</label>
+                                <input type="number" required value={paymentAmount} onChange={e => setPaymentAmount(e.target.value)} className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none font-black text-lg" placeholder="0.00" />
+                            </div>
+                            <button type="submit" className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl shadow-lg transition-all active:scale-95 text-xs uppercase tracking-widest">Update Balance</button>
+                        </form>
+                    </div>
+                </div>
 
-              <div className={`lg:col-span-2 bg-white rounded-3xl border border-slate-100 overflow-hidden print:border-none print:shadow-none print:w-full print:block`}>
-                  <div className="px-8 py-4 bg-slate-50 border-b flex justify-between items-center print:bg-white print:border-black">
-                      <h4 className="font-black text-slate-800 uppercase text-xs tracking-widest print:text-sm">
-                        {indivPrintMode === 'sales_only' ? 'Complete History' : 
-                         indivPrintMode === 'pending_only' ? 'Outstanding Dues List' : 'Transaction History'}
-                      </h4>
-                      {indivPrintMode === 'pending_only' && <span className="no-print bg-rose-100 text-rose-700 text-[9px] font-black px-2 py-1 rounded uppercase">Filtering unpaid items</span>}
-                  </div>
-                  <div className="overflow-x-auto">
-                      <table className="w-full text-left text-sm print:text-[10px]">
-                      <thead className="bg-slate-50/50 border-b text-[10px] font-black text-slate-400 uppercase tracking-widest print:text-black print:border-black">
-                          <tr>
-                          <th className="px-8 py-4">Date</th>
-                          <th className="px-8 py-4">Invoice #</th>
-                          <th className="px-8 py-4">Mode</th>
-                          <th className="px-8 py-4 text-right">Amount</th>
-                          <th className="px-8 py-4 text-center no-print">View</th>
-                          </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100 print:divide-black">
-                          {customerSales.map(s => (
-                          <tr key={s.id} className="hover:bg-slate-50 transition-colors">
-                              <td className="px-8 py-4 font-bold text-slate-600 print:text-black">
-                                {new Date(s.date).toLocaleDateString()}
-                              </td>
-                              <td className="px-8 py-4 font-black text-indigo-600 tracking-tighter">#{s.invoiceNumber.split('-')[1]}</td>
-                              <td className="px-8 py-4">
-                                  <span className={`text-[10px] font-black uppercase px-2 py-1 rounded border ${
-                                      s.paymentMethod === 'Pending' ? 'bg-orange-50 text-orange-600 border-orange-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'
-                                  } print:border-none`}>
-                                      {s.paymentMethod}
-                                  </span>
-                              </td>
-                              <td className="px-8 py-4 text-right font-black text-slate-800">₹{s.totalAmount.toLocaleString()}</td>
-                              <td className="px-8 py-4 text-center no-print">
-                                <button onClick={() => onNavigateToInvoices && onNavigateToInvoices(s)} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg">
-                                  <IconPrint className="w-4 h-4" />
-                                </button>
-                              </td>
-                          </tr>
-                          ))}
-                          {customerSales.length === 0 && (
-                            <tr>
-                              <td colSpan={5} className="py-20 text-center text-slate-400 font-bold uppercase text-xs tracking-widest italic">No matching records found for this view</td>
-                            </tr>
-                          )}
-                      </tbody>
-                      {indivIncludeDues && (
-                        <tfoot>
-                          <tr className="bg-slate-900 text-white print:bg-white print:text-black print:border-t-2 print:border-black">
-                            <td colSpan={3} className="px-8 py-4 font-black uppercase text-right tracking-widest">Calculated Balance Due</td>
-                            <td className="px-8 py-4 text-right font-black text-xl">₹{viewCustomer.pendingBalance.toLocaleString()}</td>
-                            <td className="no-print"></td>
-                          </tr>
-                        </tfoot>
-                      )}
-                      </table>
-                  </div>
-              </div>
+                <div className={`${isThermal ? 'w-full' : 'lg:col-span-2'} bg-white rounded-3xl border border-slate-100 overflow-hidden print:border-none print:shadow-none print:w-full print:block`}>
+                    {indivPrintMode !== 'summary' ? (
+                      <>
+                        <div className="px-8 py-4 bg-slate-50 border-b flex justify-between items-center print:bg-white print:border-black print:px-2">
+                            <h4 className="font-black text-slate-800 uppercase text-xs tracking-widest print:text-[10px]">
+                              {indivPrintMode === 'sales_only' ? 'Transaction History' : 
+                               indivPrintMode === 'pending_only' ? 'Unpaid Items' : 'Ledger Entries'}
+                            </h4>
+                        </div>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left text-sm print:text-[10px] border-collapse">
+                            <thead className="bg-slate-50/50 border-b text-[10px] font-black text-slate-400 uppercase tracking-widest print:text-black print:border-black">
+                                <tr>
+                                <th className="px-8 py-4 print:px-2">Date</th>
+                                <th className="px-8 py-4 print:px-2">Invoice</th>
+                                {!isThermal && <th className="px-8 py-4 print:px-2">Mode</th>}
+                                <th className="px-8 py-4 text-right print:px-2">Amount</th>
+                                <th className="px-8 py-4 text-center no-print">View</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 print:divide-black">
+                                {customerSales.map(s => (
+                                <tr key={s.id} className="hover:bg-slate-50 transition-colors">
+                                    <td className="px-8 py-4 font-bold text-slate-600 print:text-black print:px-2">
+                                      {new Date(s.date).toLocaleDateString()}
+                                    </td>
+                                    <td className="px-8 py-4 font-black text-indigo-600 tracking-tighter print:text-black print:px-2">#{s.invoiceNumber.split('-')[1]}</td>
+                                    {!isThermal && (
+                                      <td className="px-8 py-4">
+                                          <span className={`text-[10px] font-black uppercase px-2 py-1 rounded border ${
+                                              s.paymentMethod === 'Pending' ? 'bg-orange-50 text-orange-600 border-orange-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'
+                                          } print:border-none`}>
+                                              {s.paymentMethod}
+                                          </span>
+                                      </td>
+                                    )}
+                                    <td className="px-8 py-4 text-right font-black text-slate-800 print:text-black print:px-2">₹{s.totalAmount.toLocaleString()}</td>
+                                    <td className="px-8 py-4 text-center no-print">
+                                      <button onClick={() => onNavigateToInvoices && onNavigateToInvoices(s)} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg">
+                                        <IconPrint className="w-4 h-4" />
+                                      </button>
+                                    </td>
+                                </tr>
+                                ))}
+                                {customerSales.length === 0 && (
+                                  <tr>
+                                    <td colSpan={5} className="py-20 text-center text-slate-400 font-bold uppercase text-xs tracking-widest italic">No matching records</td>
+                                  </tr>
+                                )}
+                            </tbody>
+                            {indivIncludeDues && (
+                              <tfoot>
+                                <tr className="bg-slate-900 text-white print:bg-white print:text-black print:border-t-2 print:border-black">
+                                  <td colSpan={isThermal ? 2 : 3} className="px-8 py-4 font-black uppercase text-right tracking-widest print:px-2 print:text-[12px]">Net Balanced Due</td>
+                                  <td className="px-8 py-4 text-right font-black text-xl print:px-2 print:text-[14px]">₹{viewCustomer.pendingBalance.toLocaleString()}</td>
+                                  <td className="no-print"></td>
+                                </tr>
+                              </tfoot>
+                            )}
+                            </table>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="p-8 print:p-4 space-y-6">
+                        <div className="border-b-2 border-slate-100 pb-4">
+                           <h4 className="font-black text-slate-800 uppercase text-lg tracking-widest">Client Business Summary</h4>
+                           <p className="text-xs text-slate-400 font-bold uppercase mt-1">Snapshot of lifetime interaction</p>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                           <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100">
+                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Lifetime Transactions</p>
+                              <p className="text-2xl font-black text-slate-800">{customerSales.length}</p>
+                           </div>
+                           <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100">
+                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Gross Billing</p>
+                              <p className="text-2xl font-black text-indigo-600">₹{customerSales.reduce((sum, s) => sum + s.totalAmount, 0).toLocaleString()}</p>
+                           </div>
+                           <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100">
+                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Unpaid Count</p>
+                              <p className="text-2xl font-black text-rose-600">{customerSales.filter(s => s.paymentMethod === 'Pending').length}</p>
+                           </div>
+                           <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100">
+                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Last Interaction</p>
+                              <p className="text-lg font-black text-slate-800">{customerSales[0] ? new Date(customerSales[0].date).toLocaleDateString() : 'Never'}</p>
+                           </div>
+                        </div>
+                        <div className="pt-8 border-t border-slate-100 print:pt-4">
+                           <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest text-center">Verified by A M Food Processing Suite</p>
+                        </div>
+                      </div>
+                    )}
+                </div>
+            </div>
           </div>
         </div>
+
+        <style dangerouslySetInnerHTML={{ __html: `
+          @media print {
+            body * { visibility: hidden !important; }
+            .print-area-wrapper, .print-area-wrapper * { visibility: visible !important; }
+            .print-area-wrapper { position: absolute !important; left: 0 !important; top: 0 !important; width: 100% !important; background: white !important; margin: 0 !important; padding: 0 !important; box-shadow: none !important; }
+            @page { margin: 0; }
+          }
+        `}} />
       </div>
     );
   }
@@ -447,7 +501,10 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
             <div className="flex justify-between items-start mb-4">
               <div className="w-14 h-14 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-black text-2xl border border-indigo-100">{customer.name.charAt(0)}</div>
               <div className="flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button onClick={() => handleQuickPrint(customer)} className="p-2 text-slate-400 hover:text-slate-900 bg-slate-50 rounded-xl" title="Print Ledger">
+                <button onClick={() => handleQuickPrint(customer, 'pending_only')} className="p-2 text-rose-500 hover:text-rose-700 bg-rose-50 rounded-xl" title="Print Dues Statement">
+                  <IconPrint className="w-5 h-5" />
+                </button>
+                <button onClick={() => handleQuickPrint(customer, 'full')} className="p-2 text-slate-400 hover:text-slate-900 bg-slate-50 rounded-xl" title="Print Full Ledger">
                   <IconPrint className="w-5 h-5" />
                 </button>
                 <button onClick={() => startEdit(customer)} className="p-2 text-slate-400 hover:text-indigo-600 bg-slate-50 rounded-xl" title="Edit Profile">

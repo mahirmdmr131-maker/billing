@@ -24,13 +24,20 @@ export interface UpiQr {
   imageData: string; // base64
 }
 
+export interface PriceHistoryEntry {
+  rate: number;
+  date: string;
+}
+
 export interface Product {
   id: string;
   name: string;
   defaultRate: number;
+  wholesaleRate?: number; // Added wholesale tier
   unit: string;
-  currentStock?: number; // Tracking quantity
-  minThreshold?: number; // Alert threshold
+  currentStock?: number; 
+  minThreshold?: number; 
+  priceHistory?: PriceHistoryEntry[]; 
 }
 
 export interface Customer {
@@ -51,6 +58,8 @@ export interface SaleItem {
   unit: string;
   rate: number;
   total: number;
+  batchNumber?: string; // Food safety tracking
+  expiryDate?: string;  // Food safety tracking
 }
 
 export type PaymentMethod = 'Cash' | 'UPI' | 'Pending';
@@ -60,7 +69,7 @@ export interface Sale {
   invoiceNumber: string;
   date: string;
   dueDate?: string; 
-  paidDate?: string; // Track when a pending bill was cleared
+  paidDate?: string; 
   customerId?: string;
   customerName: string;
   items: SaleItem[];
@@ -69,8 +78,23 @@ export interface Sale {
   createdBy: string;
   isMistake?: boolean;
   paymentMethod: PaymentMethod;
-  selectedUpiQrId?: string; // Track which QR was used
+  selectedUpiQrId?: string; 
   includePreviousBalance?: boolean; 
+}
+
+export interface FutureOrder {
+  id: string;
+  orderNumber: string;
+  customerName: string;
+  customerId?: string;
+  orderDate: string;
+  deliveryDate: string;
+  notificationTime?: string; 
+  items: SaleItem[];
+  totalAmount: number;
+  advancePaid: number;
+  status: 'Pending' | 'Delivered' | 'Cancelled';
+  isNotified?: boolean;
 }
 
 export interface Expense {
@@ -87,6 +111,7 @@ export interface RecycleBin {
   expenses: (Expense & { deletedAt: string })[];
   customers: (Customer & { deletedAt: string })[];
   products: (Product & { deletedAt: string })[];
+  futureOrders: (FutureOrder & { deletedAt: string })[];
 }
 
 export type DashboardWidgetType = 
@@ -116,11 +141,12 @@ export interface AppData {
   business: BusinessInfo | null;
   users: User[];
   currentUser: User | null;
-  adminRecoveryCode?: string; // Secret code for admin to reset password
+  adminRecoveryCode?: string; 
   customers: Customer[];
   products: Product[]; 
-  upiQrs: UpiQr[]; // Added UPI QR codes
+  upiQrs: UpiQr[]; 
   sales: Sale[];
+  futureOrders: FutureOrder[]; 
   expenses: Expense[];
   recycleBin: RecycleBin;
   dashboardWidgets: DashboardWidget[];
@@ -144,6 +170,7 @@ export enum NavigationTab {
   Customers = 'customers',
   Products = 'products',
   Sales = 'sales',
+  FutureOrders = 'future_orders', 
   Expenses = 'expenses',
   Invoices = 'invoices',
   Reports = 'reports',

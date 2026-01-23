@@ -9,11 +9,12 @@ import Dashboard from './components/Dashboard';
 import Customers from './components/Customers';
 import Products from './components/Products';
 import Sales from './components/Sales';
+import FutureOrders from './components/FutureOrders'; // Import new component
 import Expenses from './components/Expenses';
 import Invoices from './components/Invoices';
 import Reports from './components/Reports';
 import Settings from './components/Settings';
-import { IconDashboard, IconCustomers, IconProducts, IconSales, IconExpenses, IconInvoices, IconReports, IconSettings } from './components/Icons';
+import { IconDashboard, IconCustomers, IconProducts, IconSales, IconFutureOrders, IconExpenses, IconInvoices, IconReports, IconSettings } from './components/Icons';
 import { uploadToDrive } from './utils/googleDrive';
 import { uploadToOneDrive } from './utils/oneDrive';
 
@@ -125,6 +126,46 @@ const App: React.FC = () => {
     const timer = setTimeout(() => setShowSplash(false), 2500);
     return () => clearTimeout(timer);
   }, []);
+
+  // Notification Check Loop (For Future Orders)
+  useEffect(() => {
+    if (!data.currentUser) return;
+    
+    const checkNotifications = () => {
+      const now = new Date().getTime();
+      const needsNotify = data.futureOrders.filter(o => 
+        o.status === 'Pending' && 
+        !o.isNotified && 
+        o.notificationTime && 
+        new Date(o.notificationTime).getTime() <= now
+      );
+
+      if (needsNotify.length > 0) {
+        needsNotify.forEach(order => {
+          if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification('Order Reminder: A M Food', {
+              body: `Order #${order.orderNumber} for ${order.customerName} is due for delivery on ${order.deliveryDate}.`,
+              icon: data.business?.logo
+            });
+          } else {
+            alert(`REMINDER: Order #${order.orderNumber} for ${order.customerName} delivery is due!`);
+          }
+          
+          handleUpdateData(prev => ({
+            ...prev,
+            futureOrders: prev.futureOrders.map(o => o.id === order.id ? { ...o, isNotified: true } : o)
+          }));
+        });
+      }
+    };
+
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+
+    const intervalId = setInterval(checkNotifications, 60000); // Check every minute
+    return () => clearInterval(intervalId);
+  }, [data.futureOrders, data.currentUser, data.business?.logo]);
 
   // Restore Local Directory Handles from IndexedDB on startup
   useEffect(() => {
@@ -280,6 +321,7 @@ const App: React.FC = () => {
           next.sales.length !== prev.sales.length || 
           next.customers.length !== prev.customers.length || 
           next.products.length !== prev.products.length ||
+          next.futureOrders.length !== prev.futureOrders.length ||
           next.expenses.length !== prev.expenses.length;
 
         if ((directoryHandle1 || directoryHandle2) && hasStructuralChange) {
@@ -342,6 +384,7 @@ const App: React.FC = () => {
       case NavigationTab.Customers: return <Customers data={data} updateData={handleUpdateData} onNavigateToInvoices={(sale) => { setSelectedInvoicingSale(sale); setActiveTab(NavigationTab.Invoices); }} />;
       case NavigationTab.Products: return <Products data={data} updateData={handleUpdateData} />;
       case NavigationTab.Sales: return <Sales data={data} updateData={handleUpdateData} onNavigateToInvoices={() => { setSelectedInvoicingSale(null); setActiveTab(NavigationTab.Invoices); }} />;
+      case NavigationTab.FutureOrders: return <FutureOrders data={data} updateData={handleUpdateData} />;
       case NavigationTab.Expenses: return isAdmin ? <Expenses data={data} updateData={handleUpdateData} /> : <AccessRestricted />;
       case NavigationTab.Invoices: return <Invoices data={data} updateData={handleUpdateData} initialSale={selectedInvoicingSale} onResetInitialSale={() => setSelectedInvoicingSale(null)} />;
       case NavigationTab.Reports: return isAdmin ? <Reports data={data} /> : <AccessRestricted />;
@@ -352,7 +395,7 @@ const App: React.FC = () => {
 
   return (
     <div className={`min-h-screen pb-20 md:pb-0 md:pl-64 flex flex-col bg-slate-50`}>
-      <aside className={`hidden md:flex fixed left-0 top-0 bottom-0 w-64 ${themeColors.primary} text-white flex-col p-6 shadow-xl z-20`}>
+      <aside className={`hidden md:flex fixed left-0 top-0 bottom-0 w-64 ${themeColors.primary} text-white flex-col p-6 shadow-xl z-20 overflow-y-auto`}>
         <div className="flex items-center space-x-3 mb-10 overflow-hidden">
           {data.business?.logo ? <img src={data.business.logo} alt="Logo" className="w-10 h-10 rounded bg-white p-1" /> : <div className="w-10 h-10 rounded bg-white/20 flex items-center justify-center font-bold text-xl">AM</div>}
           <h1 className="text-lg font-bold truncate leading-tight">AM Food Manager</h1>
@@ -361,7 +404,8 @@ const App: React.FC = () => {
           <NavItem active={activeTab === NavigationTab.Dashboard} onClick={() => setActiveTab(NavigationTab.Dashboard)} icon={<IconDashboard />} label="Dashboard" />
           <NavItem active={activeTab === NavigationTab.Customers} onClick={() => setActiveTab(NavigationTab.Customers)} icon={<IconCustomers />} label="Customers" />
           <NavItem active={activeTab === NavigationTab.Products} onClick={() => setActiveTab(NavigationTab.Products)} icon={<IconProducts />} label="Products" />
-          <NavItem active={activeTab === NavigationTab.Sales} onClick={() => setActiveTab(NavigationTab.Sales)} icon={<IconSales />} label="Sales" />
+          <NavItem active={activeTab === NavigationTab.Sales} onClick={() => setActiveTab(NavigationTab.Sales)} icon={<IconSales />} label="Billing" />
+          <NavItem active={activeTab === NavigationTab.FutureOrders} onClick={() => setActiveTab(NavigationTab.FutureOrders)} icon={<IconFutureOrders />} label="Future Orders" />
           {isAdmin && <NavItem active={activeTab === NavigationTab.Expenses} onClick={() => setActiveTab(NavigationTab.Expenses)} icon={<IconExpenses />} label="Expenses" />}
           <NavItem active={activeTab === NavigationTab.Invoices} onClick={() => { setSelectedInvoicingSale(null); setActiveTab(NavigationTab.Invoices); }} icon={<IconInvoices />} label="Invoices" />
           {isAdmin && <NavItem active={activeTab === NavigationTab.Reports} onClick={() => setActiveTab(NavigationTab.Reports)} icon={<IconReports />} label="Reports" />}
@@ -421,8 +465,8 @@ const App: React.FC = () => {
       <nav className="no-print md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex justify-around p-3 z-30 shadow-[0_-2px_10px_rgba(0,0,0,0.05)]">
         <MobileNavItem active={activeTab === NavigationTab.Dashboard} onClick={() => setActiveTab(NavigationTab.Dashboard)} icon={<IconDashboard />} label="Dash" />
         <MobileNavItem active={activeTab === NavigationTab.Customers} onClick={() => setActiveTab(NavigationTab.Customers)} icon={<IconCustomers />} label="Clients" />
-        <MobileNavItem active={activeTab === NavigationTab.Sales} onClick={() => setActiveTab(NavigationTab.Sales)} icon={<IconSales />} label="Sales" />
-        <MobileNavItem active={activeTab === NavigationTab.Invoices} onClick={() => { setSelectedInvoicingSale(null); setActiveTab(NavigationTab.Invoices); }} icon={<IconInvoices />} label="Bills" />
+        <MobileNavItem active={activeTab === NavigationTab.Sales} onClick={() => setActiveTab(NavigationTab.Sales)} icon={<IconSales />} label="Bills" />
+        <MobileNavItem active={activeTab === NavigationTab.FutureOrders} onClick={() => setActiveTab(NavigationTab.FutureOrders)} icon={<IconFutureOrders />} label="Orders" />
         <MobileNavItem active={activeTab === NavigationTab.Settings} onClick={() => setActiveTab(NavigationTab.Settings)} icon={<IconSettings />} label="Set" />
       </nav>
 
