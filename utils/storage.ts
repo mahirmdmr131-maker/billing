@@ -16,8 +16,9 @@ const DEFAULT_WIDGETS: DashboardWidget[] = [
   { id: '1', type: 'kpi_sales', title: 'Total Sales', color: 'indigo', width: 'third' },
   { id: '2', type: 'kpi_expenses', title: 'Total Expenses', color: 'red', width: 'third' },
   { id: '3', type: 'kpi_profit', title: 'Net Profit', color: 'emerald', width: 'third' },
-  { id: '4', type: 'chart_performance', title: 'Weekly Performance', width: 'two-thirds' },
-  { id: '5', type: 'list_activity', title: 'Recent Activity', width: 'third' }
+  { id: '4', type: 'kpi_dues', title: 'Outstanding Dues', color: 'amber', width: 'third' },
+  { id: '5', type: 'chart_performance', title: 'Weekly Performance', width: 'two-thirds' },
+  { id: '6', type: 'list_activity', title: 'Recent Activity', width: 'third' }
 ];
 
 const DEFAULT_DATA: AppData = {
@@ -26,6 +27,7 @@ const DEFAULT_DATA: AppData = {
   currentUser: null,
   customers: [],
   products: [],
+  upiQrs: [],
   sales: [],
   expenses: [],
   recycleBin: DEFAULT_RECYCLE_BIN,
@@ -33,6 +35,7 @@ const DEFAULT_DATA: AppData = {
   isInitialized: false,
   theme: 'indigo',
   isLocalFolderConnected: false,
+  isLocalFolder2Connected: false,
   syncImmediatelyLocal: true,
   isDriveConnected: false,
   isOneDriveConnected: false,
@@ -53,28 +56,28 @@ export const getHandleDB = (): Promise<IDBDatabase> => {
   });
 };
 
-export const saveDirectoryHandle = async (handle: FileSystemDirectoryHandle): Promise<void> => {
+export const saveDirectoryHandle = async (handle: FileSystemDirectoryHandle, key: string = 'backup-folder'): Promise<void> => {
   const db = await getHandleDB();
   const tx = db.transaction(HANDLE_STORE_NAME, 'readwrite');
-  tx.objectStore(HANDLE_STORE_NAME).put(handle, 'backup-folder');
+  tx.objectStore(HANDLE_STORE_NAME).put(handle, key);
   return new Promise((resolve) => {
     tx.oncomplete = () => resolve();
   });
 };
 
-export const loadDirectoryHandle = async (): Promise<FileSystemDirectoryHandle | null> => {
+export const loadDirectoryHandle = async (key: string = 'backup-folder'): Promise<FileSystemDirectoryHandle | null> => {
   const db = await getHandleDB();
   const tx = db.transaction(HANDLE_STORE_NAME, 'readonly');
-  const request = tx.objectStore(HANDLE_STORE_NAME).get('backup-folder');
+  const request = tx.objectStore(HANDLE_STORE_NAME).get(key);
   return new Promise((resolve) => {
     request.onsuccess = () => resolve(request.result || null);
   });
 };
 
-export const clearDirectoryHandle = async (): Promise<void> => {
+export const clearDirectoryHandle = async (key: string = 'backup-folder'): Promise<void> => {
   const db = await getHandleDB();
   const tx = db.transaction(HANDLE_STORE_NAME, 'readwrite');
-  tx.objectStore(HANDLE_STORE_NAME).delete('backup-folder');
+  tx.objectStore(HANDLE_STORE_NAME).delete(key);
 };
 
 export const loadData = (): AppData => {
@@ -85,6 +88,7 @@ export const loadData = (): AppData => {
     if (!data.users) data.users = [];
     if (!data.customers) data.customers = [];
     if (!data.products) data.products = [];
+    if (!data.upiQrs) data.upiQrs = [];
     if (!data.sales) data.sales = [];
     if (!data.expenses) data.expenses = [];
     if (!data.recycleBin) data.recycleBin = DEFAULT_RECYCLE_BIN;
@@ -93,6 +97,7 @@ export const loadData = (): AppData => {
     if (!data.dashboardWidgets) data.dashboardWidgets = DEFAULT_WIDGETS;
     if (data.syncImmediatelyLocal === undefined) data.syncImmediatelyLocal = true;
     if (data.isLocalFolderConnected === undefined) data.isLocalFolderConnected = false;
+    if (data.isLocalFolder2Connected === undefined) data.isLocalFolder2Connected = false;
     if (data.autoLogoutMinutes === undefined) data.autoLogoutMinutes = 0;
     
     data.customers = data.customers.map((c: any) => ({

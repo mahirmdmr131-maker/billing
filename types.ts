@@ -18,6 +18,12 @@ export interface BusinessInfo {
   tagline: string;
 }
 
+export interface UpiQr {
+  id: string;
+  name: string;
+  imageData: string; // base64
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -53,7 +59,8 @@ export interface Sale {
   id: string;
   invoiceNumber: string;
   date: string;
-  dueDate?: string; // Field to track when payment is expected
+  dueDate?: string; 
+  paidDate?: string; // Track when a pending bill was cleared
   customerId?: string;
   customerName: string;
   items: SaleItem[];
@@ -62,13 +69,14 @@ export interface Sale {
   createdBy: string;
   isMistake?: boolean;
   paymentMethod: PaymentMethod;
-  includePreviousBalance?: boolean; // Track if previous balance was included at time of sale
+  selectedUpiQrId?: string; // Track which QR was used
+  includePreviousBalance?: boolean; 
 }
 
 export interface Expense {
   id: string;
   date: string;
-  dueDate?: string; // Field to track when expense payment is due
+  dueDate?: string; 
   category: string;
   description: string;
   amount: number;
@@ -83,6 +91,9 @@ export interface RecycleBin {
 
 export type DashboardWidgetType = 
   | 'kpi_sales' 
+  | 'kpi_sales_today'
+  | 'kpi_sales_week'
+  | 'kpi_sales_month'
   | 'kpi_expenses' 
   | 'kpi_profit' 
   | 'kpi_customers' 
@@ -105,8 +116,10 @@ export interface AppData {
   business: BusinessInfo | null;
   users: User[];
   currentUser: User | null;
+  adminRecoveryCode?: string; // Secret code for admin to reset password
   customers: Customer[];
   products: Product[]; 
+  upiQrs: UpiQr[]; // Added UPI QR codes
   sales: Sale[];
   expenses: Expense[];
   recycleBin: RecycleBin;
@@ -116,12 +129,14 @@ export interface AppData {
   lastBackupDate?: string; 
   isLocalFolderConnected: boolean;
   localFolderName?: string;
+  isLocalFolder2Connected: boolean;
+  localFolder2Name?: string;
   syncImmediatelyLocal: boolean;
   snapshots: { date: string; data: string }[]; 
   isDriveConnected: boolean; 
   isOneDriveConnected: boolean;
   backupFolderName: string;
-  autoLogoutMinutes?: number; // 0 or undefined means disabled
+  autoLogoutMinutes?: number; 
 }
 
 export enum NavigationTab {

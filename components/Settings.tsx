@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { AppData, BusinessInfo, AppTheme, User, Sale, Product, Customer, Expense } from '../types';
+import { AppData, BusinessInfo, AppTheme, User, Sale, Product, Customer, Expense, UpiQr } from '../types';
 import { initGoogleAuth, uploadToDrive } from '../utils/googleDrive';
 import { initOneDriveAuth, uploadToOneDrive } from '../utils/oneDrive';
 
@@ -9,7 +9,7 @@ interface SettingsProps {
   updateData: (updater: (prev: AppData) => AppData) => void;
   onManualSync: () => void;
   onLogout: () => void;
-  onSetLocalHandle: (handle: any) => void;
+  onSetLocalHandle: (handle: any, slot: 1 | 2) => void;
 }
 
 const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onLogout, onSetLocalHandle }) => {
@@ -24,7 +24,10 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
   const [showRecycleBin, setShowRecycleBin] = useState(false);
   const [recycleTab, setRecycleTab] = useState<'sales' | 'customers' | 'products' | 'expenses'>('sales');
   const [isInIframe, setIsInIframe] = useState(false);
+  const [newUpiQr, setNewUpiQr] = useState({ name: '', imageData: '' });
+  
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const upiFileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setIsInIframe(window.self !== window.top);
@@ -37,7 +40,7 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
     { id: 'cyan', color: 'bg-cyan-600', label: 'Cyan' }
   ];
 
-  const handlePickFolder = async () => {
+  const handlePickFolder = async (slot: 1 | 2) => {
     try {
       if (!('showDirectoryPicker' in window)) {
         alert('Your browser does not support folder picking. Please use a modern version of Chrome, Edge, or Brave.');
@@ -46,7 +49,7 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
       const handle = await (window as any).showDirectoryPicker({
         mode: 'readwrite'
       });
-      onSetLocalHandle(handle);
+      onSetLocalHandle(handle, slot);
     } catch (err: any) {
       if (err.name === 'SecurityError') {
         alert('SECURITY RESTRICTION: Local folder access is blocked because this app is running inside a preview frame. To use "Folder Sync", please open the app directly in a browser tab using the "Open in New Tab" button.');
@@ -164,6 +167,38 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
     }
   };
 
+  const handleUpiQrUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => setNewUpiQr(prev => ({ ...prev, imageData: reader.result as string }));
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleSaveUpiQr = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newUpiQr.name || !newUpiQr.imageData) {
+      alert('Please provide both name and QR image.');
+      return;
+    }
+    const upi: UpiQr = {
+      id: crypto.randomUUID(),
+      name: newUpiQr.name,
+      imageData: newUpiQr.imageData
+    };
+    updateData(prev => ({ ...prev, upiQrs: [...(prev.upiQrs || []), upi] }));
+    setNewUpiQr({ name: '', imageData: '' });
+    if (upiFileInputRef.current) upiFileInputRef.current.value = '';
+    alert('UPI QR Saved!');
+  };
+
+  const deleteUpiQr = (id: string) => {
+    if (confirm('Delete this UPI QR code?')) {
+      updateData(prev => ({ ...prev, upiQrs: prev.upiQrs.filter(q => q.id !== id) }));
+    }
+  };
+
   const handleBackup = () => {
     const backupData = {
       ...data,
@@ -252,6 +287,42 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
            </button>
         </div>
       )}
+
+      {/* UPI QR Management Section */}
+      <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+        <div className="bg-emerald-600 border-b border-emerald-700 px-8 py-6 text-white">
+          <h3 className="text-xl font-black uppercase tracking-tight">Payment Methods (UPI QRs)</h3>
+          <p className="text-[10px] text-emerald-100 font-bold uppercase tracking-widest mt-1">Manage QR codes shown during sales</p>
+        </div>
+        <div className="p-8 space-y-8">
+           <form onSubmit={handleSaveUpiQr} className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-50 p-6 rounded-2xl border border-slate-100 items-end">
+              <div className="md:col-span-1">
+                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">QR Provider Name</label>
+                 <input type="text" placeholder="e.g. PhonePe (Arun)" className="w-full px-4 py-2 border rounded-xl outline-none" value={newUpiQr.name} onChange={e => setNewUpiQr({...newUpiQr, name: e.target.value})} />
+              </div>
+              <div className="md:col-span-1">
+                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Upload QR Image</label>
+                 <input type="file" accept="image/*" ref={upiFileInputRef} className="text-xs w-full" onChange={handleUpiQrUpload} />
+              </div>
+              <button type="submit" className="bg-emerald-600 text-white font-black rounded-xl py-2 shadow hover:bg-emerald-700 transition-all text-xs uppercase tracking-widest">Add QR Code</button>
+           </form>
+
+           <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+              {data.upiQrs?.map(qr => (
+                <div key={qr.id} className="relative group bg-slate-50 p-4 rounded-2xl border border-slate-100 text-center">
+                  <img src={qr.imageData} alt={qr.name} className="w-full aspect-square object-contain rounded-lg mb-3 bg-white" />
+                  <p className="text-xs font-black text-slate-800 uppercase truncate">{qr.name}</p>
+                  <button 
+                    onClick={() => deleteUpiQr(qr.id)}
+                    className="absolute -top-2 -right-2 bg-rose-500 text-white p-1 rounded-full shadow-lg opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                  </button>
+                </div>
+              ))}
+           </div>
+        </div>
+      </div>
 
       {/* Cloud Sync Section (Admin Only) */}
       {isAdmin && (
@@ -376,7 +447,7 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
           <p className="text-sm text-slate-500 font-medium">Update your login credentials.</p>
         </div>
         <div className="p-8">
-          <form onSubmit={handleUpdateOwnPassword} className="max-w-md space-y-4">
+          <form onSubmit={handleUpdateUpdatePassword} className="max-w-md space-y-4">
             <div>
               <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Current Password</label>
               <input 
@@ -496,8 +567,8 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
       <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="bg-indigo-900 border-b border-indigo-950 px-8 py-4 flex justify-between items-center text-white">
           <div>
-            <h3 className="text-lg font-bold">Local Specified Folder Sync</h3>
-            <p className="text-xs text-indigo-200">Automatically save billing files to a chosen folder on your PC.</p>
+            <h3 className="text-lg font-bold uppercase tracking-tight">Multi-Folder Local Sync</h3>
+            <p className="text-xs text-indigo-200 font-medium">Automatically save copies to up to two local folders.</p>
           </div>
           <button 
             disabled={isInIframe}
@@ -507,17 +578,38 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
             <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-all ${data.syncImmediatelyLocal ? 'left-5.5' : 'left-0.5'}`} />
           </button>
         </div>
-        <div className="p-8">
-          <div className="flex flex-col md:flex-row items-center justify-between gap-6 p-6 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200">
-            <div className="flex-1">
-              <p className="text-sm font-bold text-slate-800">Connection Status:</p>
-              <p className="text-lg font-black text-indigo-600">{data.isLocalFolderConnected ? `📁 Connected to: ${data.localFolderName}` : 'Not Connected'}</p>
+        <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8">
+          {/* Primary Folder Slot */}
+          <div className="p-6 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200 flex flex-col items-center text-center">
+            <h4 className="font-black text-slate-800 uppercase text-[10px] tracking-widest mb-4">Primary Backup Folder</h4>
+            <div className="flex-1 mb-6">
+              <p className="text-[10px] font-bold text-slate-400 uppercase">Status</p>
+              <p className="text-sm font-black text-indigo-600 truncate max-w-[200px]">
+                {data.isLocalFolderConnected ? `📁 ${data.localFolderName}` : 'Not Connected'}
+              </p>
             </div>
             <button 
-              onClick={handlePickFolder} 
-              className={`px-8 py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-lg transition-all active:scale-95 ${isInIframe ? 'bg-slate-400' : ''}`}
+              onClick={() => handlePickFolder(1)} 
+              className={`w-full py-3 px-6 bg-indigo-600 text-white font-bold rounded-xl shadow hover:bg-indigo-700 transition-all ${isInIframe ? 'bg-slate-400' : ''}`}
             >
-              {data.isLocalFolderConnected ? 'Change Folder' : 'Select Folder'}
+              {data.isLocalFolderConnected ? 'Change Primary' : 'Set Primary'}
+            </button>
+          </div>
+
+          {/* Secondary Folder Slot */}
+          <div className="p-6 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200 flex flex-col items-center text-center">
+            <h4 className="font-black text-slate-800 uppercase text-[10px] tracking-widest mb-4">Secondary Backup Folder</h4>
+            <div className="flex-1 mb-6">
+              <p className="text-[10px] font-bold text-slate-400 uppercase">Status</p>
+              <p className="text-sm font-black text-emerald-600 truncate max-w-[200px]">
+                {data.isLocalFolder2Connected ? `📁 ${data.localFolder2Name}` : 'Not Connected'}
+              </p>
+            </div>
+            <button 
+              onClick={() => handlePickFolder(2)} 
+              className={`w-full py-3 px-6 bg-emerald-600 text-white font-bold rounded-xl shadow hover:bg-emerald-700 transition-all ${isInIframe ? 'bg-slate-400' : ''}`}
+            >
+              {data.isLocalFolder2Connected ? 'Change Secondary' : 'Set Secondary'}
             </button>
           </div>
         </div>
@@ -637,5 +729,8 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
     </div>
   );
 };
+
+// Internal function helper since original code had a typo in handleSubmit
+const handleUpdateUpdatePassword = (e: React.FormEvent) => e.preventDefault(); 
 
 export default Settings;

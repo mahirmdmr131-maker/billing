@@ -1,107 +1,80 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AppData, Sale, PaymentMethod } from '../types';
 import { IconPrint } from './Icons';
 
 interface InvoicesProps {
   data: AppData;
   updateData: (updater: (prev: AppData) => AppData) => void;
+  initialSale?: Sale | null;
+  onResetInitialSale?: () => void;
 }
 
-type PrintMode = 'A4' | 'Thermal80' | 'Thermal58';
+type PrintMode = 'A4' | 'Thermal80' | 'Thermal58' | 'Summary';
 
-const Invoices: React.FC<InvoicesProps> = ({ data, updateData }) => {
+const Invoices: React.FC<InvoicesProps> = ({ data, updateData, initialSale, onResetInitialSale }) => {
   const [selectedInvoice, setSelectedInvoice] = useState<Sale | null>(null);
   const [printMode, setPrintMode] = useState<PrintMode>('A4');
   const [overrideShowPrevious, setOverrideShowPrevious] = useState<boolean | null>(null);
   const [isLargeLogo, setIsLargeLogo] = useState(false);
+  const [isPrintingSummary, setIsPrintingSummary] = useState(false);
   
-  // State for editing date
   const [editingDateId, setEditingDateId] = useState<string | null>(null);
   const [tempDate, setTempDate] = useState<string>('');
 
-  // State for editing payment
   const [editingPaymentId, setEditingPaymentId] = useState<string | null>(null);
   const [tempPaymentMethod, setTempPaymentMethod] = useState<PaymentMethod>('Cash');
 
   const isAdmin = data.currentUser?.role === 'admin';
 
+  useEffect(() => {
+    if (initialSale) {
+      setSelectedInvoice(initialSale);
+    }
+  }, [initialSale]);
+
   const handlePrint = () => {
     window.print();
   };
 
-  const handlePrintBillOnly = () => {
-    const originalOverride = overrideShowPrevious;
-    setOverrideShowPrevious(false);
-    // Short timeout to allow React to re-render the invoice without previous dues before opening print dialog
+  const handlePdfExport = () => {
+    window.print();
+  };
+
+  const handlePrintSummary = () => {
+    setIsPrintingSummary(true);
     setTimeout(() => {
       window.print();
-      setOverrideShowPrevious(originalOverride);
-    }, 100);
+      setIsPrintingSummary(false);
+    }, 150);
   };
 
-  const toggleMistakeStatus = (saleId: string) => {
-    updateData(prev => ({
-      ...prev,
-      sales: prev.sales.map(s => 
-        s.id === saleId ? { ...s, isMistake: !s.isMistake } : s
-      )
-    }));
-  };
-
-  const handleSaveDate = (saleId: string) => {
-    if (!tempDate) return;
-    updateData(prev => ({
-      ...prev,
-      sales: prev.sales.map(s => s.id === saleId ? { ...s, date: tempDate } : s)
-    }));
-    setEditingDateId(null);
-  };
-
-  const handleSavePayment = (saleId: string) => {
-    updateData(prev => {
-      const sale = prev.sales.find(s => s.id === saleId);
-      if (!sale || sale.paymentMethod === tempPaymentMethod) return prev;
-
-      let updatedCustomers = [...prev.customers];
-      
-      // Balance Reconciliation Logic
-      if (sale.customerId) {
-        const oldMethod = sale.paymentMethod;
-        const newMethod = tempPaymentMethod;
-
-        if (oldMethod === 'Pending' && newMethod !== 'Pending') {
-          // Changed from Pending to Paid -> Reduce customer balance
-          updatedCustomers = updatedCustomers.map(c => 
-            c.id === sale.customerId ? { ...c, pendingBalance: Math.max(0, (c.pendingBalance || 0) - sale.totalAmount) } : c
-          );
-        } else if (oldMethod !== 'Pending' && newMethod === 'Pending') {
-          // Changed from Paid to Pending -> Increase customer balance
-          updatedCustomers = updatedCustomers.map(c => 
-            c.id === sale.customerId ? { ...c, pendingBalance: (c.pendingBalance || 0) + sale.totalAmount } : c
-          );
-        }
-      }
-
-      return {
-        ...prev,
-        customers: updatedCustomers,
-        sales: prev.sales.map(s => s.id === saleId ? { ...s, paymentMethod: tempPaymentMethod } : s)
-      };
+  const exportBulkCSV = () => {
+    const rows = [
+      ['Invoice History - A M Food Processing'],
+      ['Date', 'Invoice #', 'Customer', 'Status', 'Amount (₹)']
+    ];
+    data.sales.forEach(s => {
+      rows.push([new Date(s.date).toLocaleDateString(), s.invoiceNumber, s.customerName, s.paymentMethod, s.totalAmount.toString()]);
     });
-    setEditingPaymentId(null);
+    const csvContent = "data:text/csv;charset=utf-8," + rows.map(r => r.map(c => `"${c}"`).join(",")).join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `AM_Food_Invoices_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
   };
 
   const deleteInvoice = (saleId: string) => {
     if (!isAdmin) return;
-    if (!window.confirm('Move this bill to Recycle Bin? This will also revert any balance added to the customer and restore product stock.')) return;
+    if (!window.confirm('Delete bill permanently? Stock and customer balances will be adjusted.')) return;
 
     updateData(prev => {
       const saleToRemove = prev.sales.find(s => s.id === saleId);
       if (!saleToRemove) return prev;
 
       let updatedCustomers = [...prev.customers];
-      // Revert balance if it was a pending sale
       if (saleToRemove.paymentMethod === 'Pending' && saleToRemove.customerId) {
         updatedCustomers = updatedCustomers.map(c => 
           c.id === saleToRemove.customerId 
@@ -110,7 +83,6 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData }) => {
         );
       }
 
-      // Revert stock decrement
       const updatedProducts = [...prev.products];
       saleToRemove.items.forEach(item => {
         const productIndex = updatedProducts.findIndex(p => p.name.toLowerCase() === item.productName.toLowerCase());
@@ -134,288 +106,123 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData }) => {
       };
     });
 
-    // Deselect if the current open invoice was just deleted
     if (selectedInvoice?.id === saleId) {
       setSelectedInvoice(null);
     }
   };
 
-  const exportCompleteEntries = () => {
-    if (!isAdmin) return;
-
-    const headers = [
-      'Invoice Number',
-      'Date',
-      'Customer Name',
-      'Product Name',
-      'Quantity',
-      'Unit',
-      'Rate (INR)',
-      'Item Total (INR)',
-      'Grand Total',
-      'Status',
-      'Payment Method',
-      'Created By'
-    ];
-
-    const rows = [headers];
-
-    data.sales.forEach(sale => {
-      const creator = data.users.find(u => u.id === sale.createdBy)?.username || 'System';
-      const status = sale.isMistake ? 'MISTAKE' : 'SUCCESS';
-      
-      sale.items.forEach(item => {
-        rows.push([
-          sale.invoiceNumber,
-          sale.date,
-          `"${sale.customerName.replace(/"/g, '""')}"`,
-          `"${item.productName.replace(/"/g, '""')}"`,
-          item.quantity.toString(),
-          item.unit,
-          item.rate.toString(),
-          item.total.toString(),
-          sale.totalAmount.toString(),
-          status,
-          sale.paymentMethod,
-          creator
-        ]);
-      });
-    });
-
-    const csvContent = "data:text/csv;charset=utf-8," + rows.map(r => r.join(",")).join("\n");
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `AM_Food_All_Entries_${new Date().toISOString().split('T')[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  const showPrevious = overrideShowPrevious !== null ? overrideShowPrevious : !!selectedInvoice?.includePreviousBalance;
-
   if (selectedInvoice) {
     const isThermal = printMode === 'Thermal80' || printMode === 'Thermal58';
     const isThermal58 = printMode === 'Thermal58';
-
-    const customer = data.customers.find(c => c.id === selectedInvoice.customerId);
-    const hasCustomer = !!customer;
-    const previousBalance = hasCustomer ? (customer.pendingBalance || 0) : 0;
-
+    
     const getLogoClass = () => {
-        if (isThermal58) {
-            return isLargeLogo ? 'w-full max-w-[160px] h-auto px-1 mb-2' : 'w-24 h-24 mb-4';
-        }
-        if (printMode === 'Thermal80') {
-            return isLargeLogo ? 'w-full max-w-[240px] h-auto mb-2' : 'w-48 h-48 mb-4';
-        }
-        // A4 Mode
-        return isLargeLogo ? 'w-full max-w-[500px] h-auto mb-8' : 'w-72 h-72 mb-4';
+        if (isThermal58) return isLargeLogo ? 'w-full px-1 mb-2' : 'w-24 mb-2';
+        if (printMode === 'Thermal80') return isLargeLogo ? 'w-full mb-2' : 'w-40 mb-2';
+        return isLargeLogo ? 'w-64 mb-4' : 'w-32 mb-4';
     };
     
     return (
       <div className="space-y-6">
-        <div className="no-print flex flex-col md:flex-row items-center justify-between mb-8 gap-4">
+        <div className="no-print flex flex-wrap items-center justify-between gap-4 p-6 bg-white rounded-3xl border border-slate-100">
           <button
-            onClick={() => { setSelectedInvoice(null); setOverrideShowPrevious(null); }}
-            className="text-slate-500 font-semibold hover:text-slate-800 flex items-center space-x-2"
+            onClick={() => { setSelectedInvoice(null); setOverrideShowPrevious(null); onResetInitialSale && onResetInitialSale(); }}
+            className="text-indigo-600 font-bold hover:bg-indigo-50 px-4 py-2 rounded-xl transition-colors flex items-center space-x-2"
           >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-            <span>Back to List</span>
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+            <span>Back to History</span>
           </button>
           
           <div className="flex flex-wrap items-center gap-4">
-            <div className="flex flex-col">
-                <label className="text-[10px] font-black uppercase text-slate-400 mb-1">Print Options</label>
-                <div className="flex gap-2">
-                    {hasCustomer && (
-                        <label className="flex items-center space-x-2 bg-white px-4 py-2 border border-slate-200 rounded-lg cursor-pointer hover:bg-slate-50 transition-colors">
-                            <input 
-                                type="checkbox" 
-                                checked={showPrevious} 
-                                onChange={e => setOverrideShowPrevious(e.target.checked)}
-                                className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" 
-                            />
-                            <span className="text-xs font-bold text-slate-700">Include Dues</span>
-                        </label>
-                    )}
-                    <label className="flex items-center space-x-2 bg-white px-4 py-2 border border-slate-200 rounded-lg cursor-pointer hover:bg-slate-50 transition-colors">
-                        <input 
-                            type="checkbox" 
-                            checked={isLargeLogo} 
-                            onChange={e => setIsLargeLogo(e.target.checked)}
-                            className="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500" 
-                        />
-                        <span className="text-xs font-bold text-slate-700">Large Logo</span>
-                    </label>
-                </div>
+            <div className="flex items-center space-x-2 px-4 py-2 border border-slate-200 rounded-xl bg-slate-50">
+              <input 
+                type="checkbox" 
+                id="large-logo" 
+                checked={isLargeLogo} 
+                onChange={(e) => setIsLargeLogo(e.target.checked)}
+                className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500"
+              />
+              <label htmlFor="large-logo" className="text-xs font-black uppercase text-slate-600 cursor-pointer">Large Logo</label>
             </div>
-            <div className="flex flex-col">
-              <label className="text-[10px] font-black uppercase text-slate-400 mb-1">Paper Size</label>
-              <select
-                className="px-4 py-2 border border-slate-300 rounded-lg outline-none text-sm font-bold bg-white"
-                value={printMode}
-                onChange={(e) => setPrintMode(e.target.value as PrintMode)}
-              >
-                <option value="A4">Standard A4</option>
-                <option value="Thermal80">Thermal (80mm)</option>
-                <option value="Thermal58">Thermal (58mm)</option>
-              </select>
-            </div>
-            <div className="flex items-center space-x-2 mt-4">
-              <button
-                onClick={handlePrint}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-lg font-bold shadow-lg flex items-center space-x-2 transition-all active:scale-95"
-              >
-                <IconPrint />
-                <span>Print Invoice</span>
-              </button>
-              {hasCustomer && (
-                <button
-                  onClick={handlePrintBillOnly}
-                  className="bg-slate-800 hover:bg-slate-900 text-white px-6 py-2 rounded-lg font-bold shadow-lg flex items-center space-x-2 transition-all active:scale-95"
-                >
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
-                    <circle cx="12" cy="12" r="3" fill="white" stroke="none" />
-                  </svg>
-                  <span>Print Bill Only</span>
-                </button>
-              )}
-              {isAdmin && (
-                <button
-                  onClick={() => deleteInvoice(selectedInvoice.id)}
-                  className="bg-red-50 text-red-600 hover:bg-red-600 hover:text-white px-6 py-2 rounded-lg font-bold shadow-md flex items-center space-x-2 transition-all active:scale-95 border border-red-100"
-                >
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                  </svg>
-                  <span>Delete Bill</span>
-                </button>
-              )}
-            </div>
+            <select className="px-4 py-2 border border-slate-200 rounded-xl text-sm font-bold bg-slate-50 outline-none" value={printMode} onChange={(e) => setPrintMode(e.target.value as PrintMode)}>
+              <option value="A4">A4 Desktop</option>
+              <option value="Thermal80">80mm Thermal</option>
+              <option value="Thermal58">58mm Mobile</option>
+            </select>
+            <button onClick={handlePrint} className="bg-indigo-600 text-white px-6 py-2 rounded-xl font-black text-xs uppercase tracking-widest shadow-lg active:scale-95 flex items-center space-x-2"><IconPrint /><span>Print</span></button>
+            <button onClick={handlePdfExport} className="bg-slate-900 text-white px-6 py-2 rounded-xl font-black text-xs uppercase tracking-widest shadow-lg active:scale-95 flex items-center space-x-2">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" /></svg>
+              <span>PDF</span>
+            </button>
+            {isAdmin && <button onClick={() => deleteInvoice(selectedInvoice.id)} className="bg-rose-50 text-rose-600 px-6 py-2 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-rose-600 hover:text-white transition-all">Delete</button>}
           </div>
         </div>
 
-        <div 
-          className={`mx-auto bg-white shadow-2xl transition-all duration-300 ${
-            isThermal58 ? 'max-w-[210px] p-2' : 
-            printMode === 'Thermal80' ? 'max-w-[300px] p-4' : 
-            'max-w-[800px] aspect-[1/1.41] p-8 md:p-12'
-          }`}
-          style={isThermal ? { fontFamily: 'monospace' } : {}}
-        >
-          {selectedInvoice.isMistake && (
-            <div className="bg-red-600 text-white text-center py-1 px-2 rounded mb-4 font-black uppercase tracking-widest text-[10px]">
-              Mistaken / Cancelled
+        <div className={`mx-auto bg-white shadow-2xl transition-all duration-300 print-only-area ${isThermal58 ? 'max-w-[240px] p-2 text-[10px]' : printMode === 'Thermal80' ? 'max-w-[320px] p-4 text-xs' : 'max-w-[800px] p-12 text-sm'}`} style={isThermal ? { fontFamily: 'monospace' } : {}}>
+          <div className="border-2 border-black p-4">
+            <div className="text-center border-b-2 border-black pb-4 mb-4">
+                {data.business?.logo && <img src={data.business.logo} alt="Logo" className={`${getLogoClass()} mx-auto object-contain`} />}
+                <h1 className={`${isThermal58 ? 'text-lg' : 'text-3xl'} font-black uppercase`}>{data.business?.name}</h1>
+                <p className="text-[10px] font-bold uppercase tracking-widest">{data.business?.tagline}</p>
+                <div className="mt-2 text-[10px] font-medium leading-tight">
+                    <p>{data.business?.address}</p>
+                    <p>Ph: {data.business?.phone}</p>
+                    {data.business?.gst && <p className="font-bold">GSTIN: {data.business.gst}</p>}
+                </div>
             </div>
-          )}
-          
-          <div className={`flex flex-col items-center border-b border-slate-200 pb-4 mb-4 text-center ${isThermal ? 'border-dashed' : 'border-slate-100'}`}>
-            {data.business?.logo && (
-              <img 
-                src={data.business.logo} 
-                alt="Logo" 
-                className={`${getLogoClass()} object-contain`} 
-              />
-            )}
-            <h1 className={`${isThermal58 ? 'text-sm' : 'text-2xl'} font-black uppercase tracking-tight text-slate-800`}>
-              {data.business?.name}
-            </h1>
-            <p className={`${isThermal58 ? 'text-[8px]' : 'text-sm'} font-medium text-slate-500 uppercase italic`}>
-              {data.business?.tagline}
-            </p>
-            <div className={`${isThermal58 ? 'text-[8px]' : 'text-[11px]'} mt-2 text-slate-500 space-y-0.5 leading-tight`}>
-              <p>{data.business?.address}</p>
-              <p>Ph: {data.business?.phone}</p>
-              {data.business?.gst && <p className="font-bold">GSTIN: {data.business.gst}</p>}
+
+            <div className="flex justify-between mb-4 text-[10px] font-bold uppercase">
+                <div className="text-left">
+                    <p className="opacity-50">Customer</p>
+                    <p className="text-lg">{selectedInvoice.customerName}</p>
+                </div>
+                <div className="text-right">
+                    <p className="opacity-50">Invoice No</p>
+                    <p>#{selectedInvoice.invoiceNumber.split('-')[1]}</p>
+                    <p>{new Date(selectedInvoice.date).toLocaleDateString()}</p>
+                </div>
             </div>
-          </div>
 
-          <div className={`flex justify-between mb-4 ${isThermal58 ? 'text-[8px]' : 'text-xs'}`}>
-            <div className="space-y-0.5">
-              <p className="text-slate-400 font-bold uppercase text-[6px] tracking-widest">Bill To</p>
-              <p className="font-bold text-slate-800 uppercase">{selectedInvoice.customerName}</p>
+            <table className="w-full mb-6 text-left border-collapse">
+                <thead className="border-y-2 border-black">
+                    <tr className="uppercase font-black text-[10px]">
+                        <th className="py-2">Product</th>
+                        <th className="py-2 text-center">Qty</th>
+                        <th className="py-2 text-center">Rate/Unit</th>
+                        <th className="py-2 text-right">Amt</th>
+                    </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-300">
+                    {selectedInvoice.items.map((item, idx) => (
+                        <tr key={idx} className="font-bold">
+                            <td className="py-2 uppercase">{item.productName}</td>
+                            <td className="py-2 text-center">{item.quantity}{item.unit}</td>
+                            <td className="py-2 text-center">₹{item.rate}/{item.unit === 'gram' || item.unit === 'kg' ? 'kg' : (item.unit === 'ml' || item.unit === 'ltr' ? 'ltr' : item.unit)}</td>
+                            <td className="py-2 text-right">₹{item.total.toLocaleString()}</td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+
+            <div className="ml-auto w-full md:w-1/2 space-y-1 pt-4">
+                <div className="flex justify-between font-bold">
+                    <span>Grand Total</span>
+                    <span className="text-xl">₹{selectedInvoice.totalAmount.toLocaleString()}</span>
+                </div>
+                <p className="text-[9px] uppercase font-black opacity-60 text-right">Payment Mode: {selectedInvoice.paymentMethod}</p>
             </div>
-            <div className="text-right space-y-0.5">
-              <p className="text-slate-400 font-bold uppercase text-[6px] tracking-widest">Bill Info</p>
-              <p className="font-bold text-slate-800">#{selectedInvoice.invoiceNumber.split('-')[1]}</p>
-              <p className="text-slate-600">{new Date(selectedInvoice.date).toLocaleDateString()}</p>
+
+            <div className="mt-12 text-center border-t border-black pt-4">
+                <p className="text-[10px] font-black uppercase tracking-widest">Thanks for Visiting!</p>
+                <p className="text-[8px] italic opacity-50">A M Food processing Software Solutions</p>
             </div>
-          </div>
-
-          <table className="w-full mb-4">
-            <thead className={`border-y border-slate-200 ${isThermal ? 'border-dashed' : ''} bg-slate-50`}>
-              <tr className={`${isThermal58 ? 'text-[8px]' : 'text-[10px]'} uppercase font-black`}>
-                <th className="py-1 text-left text-slate-600">Item</th>
-                <th className="py-1 text-center text-slate-600">Qty</th>
-                <th className="py-1 text-right text-slate-600">Amt</th>
-              </tr>
-            </thead>
-            <tbody className={`divide-y divide-slate-100 ${isThermal ? 'divide-dashed' : ''} ${isThermal58 ? 'text-[8px]' : 'text-xs'}`}>
-              {selectedInvoice.items.map((item, idx) => (
-                <tr key={idx} className="align-top">
-                  <td className="py-1 font-medium text-slate-800 break-words max-w-[80px]">{item.productName}</td>
-                  <td className="py-1 text-center whitespace-nowrap">{item.quantity}{item.unit}</td>
-                  <td className="py-1 text-right font-bold">₹{item.total.toLocaleString()}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          <div className={`ml-auto w-full space-y-1 pt-2 border-t-2 ${isThermal ? 'border-dashed border-slate-800' : 'border-slate-800 md:w-1/2'}`}>
-             <div className={`flex justify-between ${isThermal58 ? 'text-[8px]' : 'text-xs'}`}>
-                <span className="text-slate-500 font-bold">Subtotal (Current Bill)</span>
-                <span className="font-bold text-slate-800">₹{selectedInvoice.totalAmount.toLocaleString()}</span>
-             </div>
-             
-             {hasCustomer && showPrevious && (
-               <>
-                 <div className={`flex justify-between ${isThermal58 ? 'text-[8px]' : 'text-xs'} border-t border-slate-100 mt-1 pt-1`}>
-                    <span className="text-slate-400 font-medium italic">Previous Pending</span>
-                    <span className="text-slate-500">₹{previousBalance.toLocaleString()}</span>
-                 </div>
-                 <div className={`flex justify-between items-center ${isThermal ? 'bg-slate-100 text-slate-900' : 'bg-slate-900 text-white'} p-1.5 rounded mt-2`}>
-                    <span className="font-bold uppercase tracking-widest text-[8px]">Total Outstanding</span>
-                    <span className={`${isThermal58 ? 'text-xs' : 'text-lg'} font-black`}>₹{(selectedInvoice.totalAmount + previousBalance).toLocaleString()}</span>
-                 </div>
-               </>
-             )}
-
-             {(!hasCustomer || !showPrevious) && (
-               <div className={`flex justify-between items-center ${isThermal ? 'bg-slate-100 text-slate-900' : 'bg-slate-900 text-white'} p-1.5 rounded mt-2`}>
-                  <span className="font-bold uppercase tracking-widest text-[8px]">Grand Total</span>
-                  <span className={`${isThermal58 ? 'text-xs' : 'text-lg'} font-black`}>₹{selectedInvoice.totalAmount.toLocaleString()}</span>
-               </div>
-             )}
-          </div>
-
-          <div className="mt-6 text-center space-y-1 pb-4">
-            <p className={`${isThermal58 ? 'text-[6px]' : 'text-[9px]'} font-black text-slate-500 uppercase tracking-widest`}>
-              Thanks! Visit Again
-            </p>
-            <p className="text-[6px] text-slate-300 italic leading-none">
-              Generated by AM Food processing
-            </p>
           </div>
         </div>
 
         <style dangerouslySetInnerHTML={{ __html: `
           @media print {
-            body * { visibility: hidden; }
-            .mx-auto.bg-white { 
-              visibility: visible; 
-              position: absolute; 
-              left: 0; 
-              top: 0; 
-              width: 100%; 
-              box-shadow: none !important; 
-              padding: 0 !important; 
-              margin: 0 !important; 
-            }
-            .mx-auto.bg-white * { visibility: visible; }
+            body * { visibility: hidden !important; }
+            .print-only-area, .print-only-area * { visibility: visible !important; }
+            .print-only-area { position: absolute !important; left: 0 !important; top: 0 !important; width: 100% !important; background: white !important; margin: 0 !important; padding: 0 !important; box-shadow: none !important; }
             @page { margin: 0; }
           }
         `}} />
@@ -425,165 +232,111 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData }) => {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h3 className="text-lg font-bold text-slate-800">Saved Invoices</h3>
-        {isAdmin && (
-          <button
-            onClick={exportCompleteEntries}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded-xl font-bold shadow-md flex items-center space-x-2 transition-all active:scale-95 text-sm"
+      <div className="flex flex-col md:flex-row justify-between items-center bg-white p-6 rounded-3xl border border-slate-100 gap-4">
+        <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight">Invoice History</h3>
+        <div className="flex flex-wrap items-center gap-2">
+          <button 
+            onClick={exportBulkCSV}
+            className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-md transition-all active:scale-95"
           >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-            <span>Export All Entries (Admin)</span>
+            <span>Excel Export</span>
           </button>
-        )}
-      </div>
-
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead className="bg-slate-50 border-b border-slate-200">
-              <tr>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase">Inv #</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase">Customer</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase">Date</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase">Payment</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase text-right">Amount</th>
-                <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase text-center">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {data.sales.length > 0 ? data.sales.map((sale) => (
-                <tr key={sale.id} className={`transition-colors ${sale.isMistake ? 'bg-red-50/50 hover:bg-red-50' : 'hover:bg-slate-50'}`}>
-                  <td className="px-6 py-4 text-sm font-mono font-black text-indigo-600">
-                    {sale.invoiceNumber}
-                    {sale.isMistake && <span className="block text-[8px] font-black uppercase text-red-500">MISTAKE</span>}
-                  </td>
-                  <td className="px-6 py-4 text-sm font-bold text-slate-800">{sale.customerName}</td>
-                  <td className="px-6 py-4 text-sm text-slate-600">
-                    {editingDateId === sale.id ? (
-                      <div className="flex items-center space-x-2">
-                        <input 
-                          type="date" 
-                          className="px-2 py-1 text-xs border border-slate-200 rounded outline-none focus:ring-1 focus:ring-indigo-500"
-                          value={tempDate}
-                          onChange={(e) => setTempDate(e.target.value)}
-                        />
-                        <button 
-                          onClick={() => handleSaveDate(sale.id)}
-                          className="p-1 bg-emerald-100 text-emerald-600 rounded hover:bg-emerald-200"
-                        >
-                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-                        </button>
-                        <button 
-                          onClick={() => setEditingDateId(null)}
-                          className="p-1 bg-slate-100 text-slate-600 rounded hover:bg-slate-200"
-                        >
-                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex items-center group/date">
-                        <span>{new Date(sale.date).toLocaleDateString()}</span>
-                        {isAdmin && (
-                          <button 
-                            onClick={() => { setEditingDateId(sale.id); setTempDate(sale.date); }}
-                            className="ml-2 opacity-0 group-hover/date:opacity-100 p-1 text-slate-400 hover:text-indigo-600 transition-opacity"
-                          >
-                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 text-sm">
-                    {editingPaymentId === sale.id ? (
-                      <div className="flex items-center space-x-2">
-                        <select
-                          className="px-2 py-1 text-xs border border-slate-200 rounded outline-none focus:ring-1 focus:ring-indigo-500"
-                          value={tempPaymentMethod}
-                          onChange={(e) => setTempPaymentMethod(e.target.value as PaymentMethod)}
-                        >
-                          <option value="Cash">Cash</option>
-                          <option value="UPI">UPI</option>
-                          <option value="Pending">Pending</option>
-                        </select>
-                        <button 
-                          onClick={() => handleSavePayment(sale.id)}
-                          className="p-1 bg-emerald-100 text-emerald-600 rounded hover:bg-emerald-200"
-                        >
-                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-                        </button>
-                        <button 
-                          onClick={() => setEditingPaymentId(null)}
-                          className="p-1 bg-slate-100 text-slate-600 rounded hover:bg-slate-200"
-                        >
-                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex items-center group/payment">
-                        <span className={`px-2 py-1 rounded text-[10px] font-black uppercase tracking-tighter ${
-                          sale.paymentMethod === 'Cash' ? 'bg-emerald-50 text-emerald-600' : 
-                          sale.paymentMethod === 'UPI' ? 'bg-blue-50 text-blue-600' : 
-                          'bg-orange-50 text-orange-600'
-                        }`}>
-                          {sale.paymentMethod || 'Cash'}
-                        </span>
-                        {isAdmin && (
-                          <button 
-                            onClick={() => { setEditingPaymentId(sale.id); setTempPaymentMethod(sale.paymentMethod || 'Cash'); }}
-                            className="ml-2 opacity-0 group-hover/payment:opacity-100 p-1 text-slate-400 hover:text-indigo-600 transition-opacity"
-                          >
-                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-                            </svg>
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 text-sm font-bold text-slate-800 text-right">₹{sale.totalAmount.toLocaleString()}</td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center justify-center space-x-2">
-                      <button
-                        onClick={() => setSelectedInvoice(sale)}
-                        className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors inline-flex items-center space-x-1"
-                      >
-                        <IconPrint className="w-4 h-4" />
-                        <span className="text-xs font-bold">View</span>
-                      </button>
-                      <button
-                        onClick={() => toggleMistakeStatus(sale.id)}
-                        className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-tighter transition-all border ${sale.isMistake ? 'bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-100' : 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100'}`}
-                        title={sale.isMistake ? "Mark as valid bill" : "Mark as mistake"}
-                      >
-                        {sale.isMistake ? 'Unflag' : 'Mistake'}
-                      </button>
-                      {isAdmin && (
-                        <button
-                          onClick={() => deleteInvoice(sale.id)}
-                          className="p-2 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all group"
-                          title="Move to Recycle Bin"
-                        >
-                          <svg className="w-4 h-4 group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                          </svg>
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              )) : (
-                <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center text-slate-400">No invoices generated yet.</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+          <button 
+            onClick={handlePrintSummary}
+            className="flex items-center space-x-2 bg-slate-900 hover:bg-black text-white px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-md transition-all active:scale-95"
+          >
+            <IconPrint className="w-3 h-3" />
+            <span>PDF Export</span>
+          </button>
         </div>
       </div>
+
+      <div className="bg-white rounded-[40px] shadow-sm border border-slate-200 overflow-hidden">
+        <table className="w-full text-left">
+          <thead className="bg-slate-50 border-b text-[10px] font-black text-slate-400 uppercase tracking-widest">
+            <tr>
+              <th className="px-8 py-5">Date</th>
+              <th className="px-8 py-5">Customer</th>
+              <th className="px-8 py-5">Status</th>
+              <th className="px-8 py-5 text-right">Amount</th>
+              <th className="px-8 py-5 text-center">View</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {data.sales.map((sale) => (
+              <tr key={sale.id} className="hover:bg-slate-50 transition-colors">
+                <td className="px-8 py-5 text-xs font-bold text-slate-500">{new Date(sale.date).toLocaleDateString()}</td>
+                <td className="px-8 py-5 text-sm font-black text-slate-800 uppercase">{sale.customerName}</td>
+                <td className="px-8 py-5">
+                   <span className={`text-[9px] font-black uppercase px-2 py-1 rounded ${sale.paymentMethod === 'Pending' ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600'}`}>{sale.paymentMethod}</span>
+                </td>
+                <td className="px-8 py-5 text-right font-black text-slate-800">₹{sale.totalAmount.toLocaleString()}</td>
+                <td className="px-8 py-5 text-center">
+                  <button onClick={() => setSelectedInvoice(sale)} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all">
+                    <IconPrint className="w-5 h-5" />
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {data.sales.length === 0 && (
+              <tr><td colSpan={5} className="py-20 text-center text-slate-300 font-bold uppercase text-xs">No records found</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Hidden Print Summary Layout */}
+      {isPrintingSummary && (
+        <div className="print-only hidden print:block bg-white text-black p-10" style={{ fontFamily: 'sans-serif' }}>
+           <div className="text-center mb-10 border-b-2 border-black pb-8">
+              {data.business?.logo && <img src={data.business.logo} alt="Logo" className="w-32 mx-auto mb-4 object-contain" />}
+              <h1 className="text-4xl font-black uppercase">{data.business?.name}</h1>
+              <h2 className="text-xl font-bold uppercase tracking-[0.2em] mt-2">Sales Summary Report</h2>
+              <p className="text-xs text-gray-500 mt-4 uppercase font-bold tracking-widest">Complete history of all generated invoices</p>
+              <p className="text-[10px] mt-1 italic">Generated on: {new Date().toLocaleString()}</p>
+           </div>
+
+           <table className="w-full border-collapse">
+              <thead>
+                 <tr className="bg-gray-100 border-y-2 border-black">
+                    <th className="p-3 text-left text-[10px] uppercase font-black">Date</th>
+                    <th className="p-3 text-left text-[10px] uppercase font-black">Invoice #</th>
+                    <th className="p-3 text-left text-[10px] uppercase font-black">Customer</th>
+                    <th className="p-3 text-left text-[10px] uppercase font-black">Status</th>
+                    <th className="p-3 text-right text-[10px] uppercase font-black">Amount</th>
+                 </tr>
+              </thead>
+              <tbody>
+                 {data.sales.map((s, i) => (
+                    <tr key={i} className="border-b border-gray-200">
+                       <td className="p-3 text-xs">{new Date(s.date).toLocaleDateString()}</td>
+                       <td className="p-3 text-xs font-mono font-bold">#{s.invoiceNumber.split('-')[1]}</td>
+                       <td className="p-3 text-xs font-bold uppercase">{s.customerName}</td>
+                       <td className="p-3 text-[10px] uppercase font-black">{s.paymentMethod}</td>
+                       <td className="p-3 text-xs text-right font-black">₹{s.totalAmount.toLocaleString()}</td>
+                    </tr>
+                 ))}
+              </tbody>
+              <tfoot>
+                 <tr className="bg-gray-50 font-black border-t-2 border-black">
+                    <td colSpan={4} className="p-4 text-right uppercase text-sm">Grand Consolidated Revenue</td>
+                    <td className="p-4 text-right text-lg">₹{data.sales.reduce((sum, s) => sum + s.totalAmount, 0).toLocaleString()}</td>
+                 </tr>
+              </tfoot>
+           </table>
+
+           <div className="mt-24 pt-10 border-t border-black flex justify-between px-10">
+              <div className="text-center">
+                 <div className="w-40 border-b border-black mb-2"></div>
+                 <p className="text-[10px] font-black uppercase tracking-widest">Accountant / Cashier</p>
+              </div>
+              <div className="text-center">
+                 <div className="w-40 border-b border-black mb-2"></div>
+                 <p className="text-[10px] font-black uppercase tracking-widest">Authorized Signature</p>
+              </div>
+           </div>
+        </div>
+      )}
     </div>
   );
 };

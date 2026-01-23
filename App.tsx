@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { AppData, NavigationTab, BusinessInfo, AppTheme, User } from './types';
+import { AppData, NavigationTab, BusinessInfo, AppTheme, User, Sale } from './types';
 import { loadData, saveData, loadDirectoryHandle, saveDirectoryHandle, clearDirectoryHandle } from './utils/storage';
 import SplashScreen from './components/SplashScreen';
 import SetupScreen from './components/SetupScreen';
@@ -17,8 +17,9 @@ import { IconDashboard, IconCustomers, IconProducts, IconSales, IconExpenses, Ic
 import { uploadToDrive } from './utils/googleDrive';
 import { uploadToOneDrive } from './utils/oneDrive';
 
-// Directory handle for local folder sync (cannot be serialized to localStorage)
-let directoryHandle: any = null;
+// Directory handles for local folder sync (cannot be serialized to localStorage)
+let directoryHandle1: any = null;
+let directoryHandle2: any = null;
 
 const AccessRestricted = () => (
   <div className="flex flex-col items-center justify-center py-20 bg-white rounded-3xl border border-slate-200 shadow-sm">
@@ -115,6 +116,7 @@ const App: React.FC = () => {
   const [data, setData] = useState<AppData>(loadData());
   const [showSplash, setShowSplash] = useState(true);
   const [activeTab, setActiveTab] = useState<NavigationTab>(NavigationTab.Dashboard);
+  const [selectedInvoicingSale, setSelectedInvoicingSale] = useState<Sale | null>(null);
   const [showUserDropdown, setShowUserDropdown] = useState(false);
   const [isBusinessModalOpen, setIsBusinessModalOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -124,28 +126,31 @@ const App: React.FC = () => {
     return () => clearTimeout(timer);
   }, []);
 
-  // Restore Local Directory Handle from IndexedDB on startup
+  // Restore Local Directory Handles from IndexedDB on startup
   useEffect(() => {
-    const restoreHandle = async () => {
+    const restoreHandles = async () => {
       try {
-        const handle = await loadDirectoryHandle();
-        if (handle) {
-          // Wrap in try-catch because queryPermission throws in cross-origin frames
+        const handle1 = await loadDirectoryHandle('backup-folder-1');
+        const handle2 = await loadDirectoryHandle('backup-folder-2');
+        
+        if (handle1) {
           try {
-            const status = await (handle as any).queryPermission({ mode: 'readwrite' });
-            if (status === 'granted') {
-              directoryHandle = handle;
-            }
-          } catch (secError) {
-             // Silence security errors in subframes during startup
-             console.warn('Silent restriction: Directory handle restored but permission check blocked by browser security (likely iframe).');
-          }
+            const status = await (handle1 as any).queryPermission({ mode: 'readwrite' });
+            if (status === 'granted') directoryHandle1 = handle1;
+          } catch (e) { console.warn('Handle 1 permission restriction'); }
+        }
+        
+        if (handle2) {
+          try {
+            const status = await (handle2 as any).queryPermission({ mode: 'readwrite' });
+            if (status === 'granted') directoryHandle2 = handle2;
+          } catch (e) { console.warn('Handle 2 permission restriction'); }
         }
       } catch (e) {
-        console.error('Failed to restore directory handle', e);
+        console.error('Failed to restore directory handles', e);
       }
     };
-    restoreHandle();
+    restoreHandles();
   }, []);
 
   useEffect(() => {
@@ -159,27 +164,30 @@ const App: React.FC = () => {
   }, []);
 
   const handleLocalAutoBackup = useCallback(async (currentData: AppData) => {
-    if (!directoryHandle || !currentData.isLocalFolderConnected) return;
+    const handles = [
+      { h: directoryHandle1, enabled: currentData.isLocalFolderConnected },
+      { h: directoryHandle2, enabled: currentData.isLocalFolder2Connected }
+    ];
 
-    try {
-      const status = await (directoryHandle as any).queryPermission({ mode: 'readwrite' });
-      if (status !== 'granted') {
-        console.warn('Backup triggered but folder permission is missing.');
-        return;
+    for (const item of handles) {
+      if (!item.h || !item.enabled) continue;
+
+      try {
+        const status = await (item.h as any).queryPermission({ mode: 'readwrite' });
+        if (status !== 'granted') continue;
+
+        const now = new Date();
+        const dateStr = now.toISOString().split('T')[0];
+        const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '-');
+        const fileName = `AM_Food_Backup_${dateStr}_${timeStr}.json`;
+        
+        const fileHandle = await item.h.getFileHandle(fileName, { create: true });
+        const writable = await fileHandle.createWritable();
+        await writable.write(JSON.stringify(currentData, null, 2));
+        await writable.close();
+      } catch (error) {
+        console.error('Local backup iteration failed:', error);
       }
-
-      const now = new Date();
-      const dateStr = now.toISOString().split('T')[0];
-      const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '-');
-      const fileName = `AM_Food_Backup_${dateStr}_${timeStr}.json`;
-      
-      const fileHandle = await directoryHandle.getFileHandle(fileName, { create: true });
-      const writable = await fileHandle.createWritable();
-      await writable.write(JSON.stringify(currentData, null, 2));
-      await writable.close();
-      console.log('Immediate local backup successful:', fileName);
-    } catch (error) {
-      console.error('Failed to write immediate local backup:', error);
     }
   }, []);
 
@@ -187,8 +195,20 @@ const App: React.FC = () => {
     saveData(data);
   }, [data]);
 
-  const handleSetupComplete = (business: BusinessInfo, admin: User) => {
-    setData(prev => ({ ...prev, business, users: [admin], currentUser: admin, isInitialized: true }));
+  const handleSetupComplete = (business: BusinessInfo, admin: User, recoveryCode: string) => {
+    setData(prev => ({ 
+      ...prev, 
+      business, 
+      users: [admin], 
+      currentUser: admin, 
+      adminRecoveryCode: recoveryCode,
+      isInitialized: true 
+    }));
+  };
+
+  const handleImportBackup = (importedData: AppData) => {
+    setData(importedData);
+    alert('Data imported successfully! Please log in to your account.');
   };
 
   const handleLogin = (user: User) => {
@@ -198,7 +218,8 @@ const App: React.FC = () => {
 
   const handleLogout = useCallback(() => {
     setData(prev => ({ ...prev, currentUser: null }));
-    directoryHandle = null;
+    directoryHandle1 = null;
+    directoryHandle2 = null;
     setShowUserDropdown(false);
   }, []);
 
@@ -229,9 +250,9 @@ const App: React.FC = () => {
 
   const handleManualSync = async () => {
     let results = [];
-    if (directoryHandle) {
+    if (directoryHandle1 || directoryHandle2) {
       await handleLocalAutoBackup(data);
-      results.push('Local Folder');
+      results.push('Local Folder(s)');
     }
     
     if (data.isDriveConnected) {
@@ -247,7 +268,7 @@ const App: React.FC = () => {
     if (results.length > 0) {
       alert(`Backup synchronization complete for: ${results.join(', ')}`);
     } else {
-      alert('No active backup channels (Local Folder, Google Drive, or OneDrive) found.');
+      alert('No active backup channels (Local Folders, Google Drive, or OneDrive) found.');
     }
   };
 
@@ -261,7 +282,7 @@ const App: React.FC = () => {
           next.products.length !== prev.products.length ||
           next.expenses.length !== prev.expenses.length;
 
-        if (directoryHandle && hasStructuralChange) {
+        if ((directoryHandle1 || directoryHandle2) && hasStructuralChange) {
           handleLocalAutoBackup(next);
         }
         if (next.isDriveConnected && hasStructuralChange) {
@@ -275,18 +296,26 @@ const App: React.FC = () => {
     });
   };
 
-  const setLocalHandle = async (handle: any) => {
-    directoryHandle = handle;
-    if (handle) {
-      await saveDirectoryHandle(handle);
+  const setLocalHandle = async (handle: any, slot: 1 | 2) => {
+    if (slot === 1) {
+      directoryHandle1 = handle;
+      if (handle) await saveDirectoryHandle(handle, 'backup-folder-1');
+      else await clearDirectoryHandle('backup-folder-1');
+      setData(prev => ({ 
+        ...prev, 
+        isLocalFolderConnected: !!handle,
+        localFolderName: handle ? handle.name : undefined 
+      }));
     } else {
-      await clearDirectoryHandle();
+      directoryHandle2 = handle;
+      if (handle) await saveDirectoryHandle(handle, 'backup-folder-2');
+      else await clearDirectoryHandle('backup-folder-2');
+      setData(prev => ({ 
+        ...prev, 
+        isLocalFolder2Connected: !!handle,
+        localFolder2Name: handle ? handle.name : undefined 
+      }));
     }
-    setData(prev => ({ 
-      ...prev, 
-      isLocalFolderConnected: !!handle,
-      localFolderName: handle ? handle.name : undefined 
-    }));
   };
 
   const isAdmin = data.currentUser?.role === 'admin';
@@ -304,17 +333,17 @@ const App: React.FC = () => {
   }, [data.theme]);
 
   if (showSplash) return <SplashScreen business={data.business} />;
-  if (!data.isInitialized) return <SetupScreen onComplete={handleSetupComplete} />;
-  if (!data.currentUser) return <Login data={data} onLogin={handleLogin} />;
+  if (!data.isInitialized) return <SetupScreen onComplete={handleSetupComplete} onImport={handleImportBackup} />;
+  if (!data.currentUser) return <Login data={data} updateData={handleUpdateData} onLogin={handleLogin} />;
 
   const renderTabContent = () => {
     switch (activeTab) {
       case NavigationTab.Dashboard: return <Dashboard data={data} updateData={handleUpdateData} />;
-      case NavigationTab.Customers: return <Customers data={data} updateData={handleUpdateData} />;
+      case NavigationTab.Customers: return <Customers data={data} updateData={handleUpdateData} onNavigateToInvoices={(sale) => { setSelectedInvoicingSale(sale); setActiveTab(NavigationTab.Invoices); }} />;
       case NavigationTab.Products: return <Products data={data} updateData={handleUpdateData} />;
-      case NavigationTab.Sales: return <Sales data={data} updateData={handleUpdateData} onNavigateToInvoices={() => setActiveTab(NavigationTab.Invoices)} />;
+      case NavigationTab.Sales: return <Sales data={data} updateData={handleUpdateData} onNavigateToInvoices={() => { setSelectedInvoicingSale(null); setActiveTab(NavigationTab.Invoices); }} />;
       case NavigationTab.Expenses: return isAdmin ? <Expenses data={data} updateData={handleUpdateData} /> : <AccessRestricted />;
-      case NavigationTab.Invoices: return <Invoices data={data} updateData={handleUpdateData} />;
+      case NavigationTab.Invoices: return <Invoices data={data} updateData={handleUpdateData} initialSale={selectedInvoicingSale} onResetInitialSale={() => setSelectedInvoicingSale(null)} />;
       case NavigationTab.Reports: return isAdmin ? <Reports data={data} /> : <AccessRestricted />;
       case NavigationTab.Settings: return <Settings data={data} updateData={handleUpdateData} onManualSync={handleManualSync} onLogout={handleLogout} onSetLocalHandle={setLocalHandle} />;
       default: return <Dashboard data={data} updateData={handleUpdateData} />;
@@ -334,7 +363,7 @@ const App: React.FC = () => {
           <NavItem active={activeTab === NavigationTab.Products} onClick={() => setActiveTab(NavigationTab.Products)} icon={<IconProducts />} label="Products" />
           <NavItem active={activeTab === NavigationTab.Sales} onClick={() => setActiveTab(NavigationTab.Sales)} icon={<IconSales />} label="Sales" />
           {isAdmin && <NavItem active={activeTab === NavigationTab.Expenses} onClick={() => setActiveTab(NavigationTab.Expenses)} icon={<IconExpenses />} label="Expenses" />}
-          <NavItem active={activeTab === NavigationTab.Invoices} onClick={() => setActiveTab(NavigationTab.Invoices)} icon={<IconInvoices />} label="Invoices" />
+          <NavItem active={activeTab === NavigationTab.Invoices} onClick={() => { setSelectedInvoicingSale(null); setActiveTab(NavigationTab.Invoices); }} icon={<IconInvoices />} label="Invoices" />
           {isAdmin && <NavItem active={activeTab === NavigationTab.Reports} onClick={() => setActiveTab(NavigationTab.Reports)} icon={<IconReports />} label="Reports" />}
           <div className="pt-4 border-t border-white/10 mt-4">
             <NavItem active={activeTab === NavigationTab.Settings} onClick={() => setActiveTab(NavigationTab.Settings)} icon={<IconSettings />} label="Settings" />
@@ -393,7 +422,7 @@ const App: React.FC = () => {
         <MobileNavItem active={activeTab === NavigationTab.Dashboard} onClick={() => setActiveTab(NavigationTab.Dashboard)} icon={<IconDashboard />} label="Dash" />
         <MobileNavItem active={activeTab === NavigationTab.Customers} onClick={() => setActiveTab(NavigationTab.Customers)} icon={<IconCustomers />} label="Clients" />
         <MobileNavItem active={activeTab === NavigationTab.Sales} onClick={() => setActiveTab(NavigationTab.Sales)} icon={<IconSales />} label="Sales" />
-        <MobileNavItem active={activeTab === NavigationTab.Invoices} onClick={() => setActiveTab(NavigationTab.Invoices)} icon={<IconInvoices />} label="Bills" />
+        <MobileNavItem active={activeTab === NavigationTab.Invoices} onClick={() => { setSelectedInvoicingSale(null); setActiveTab(NavigationTab.Invoices); }} icon={<IconInvoices />} label="Bills" />
         <MobileNavItem active={activeTab === NavigationTab.Settings} onClick={() => setActiveTab(NavigationTab.Settings)} icon={<IconSettings />} label="Set" />
       </nav>
 

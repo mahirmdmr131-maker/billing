@@ -1,20 +1,34 @@
 
 import React, { useState, useMemo } from 'react';
-import { AppData, Customer, Sale } from '../types';
-import { IconAdd } from './Icons';
+import { AppData, Customer, Sale, NavigationTab } from '../types';
+import { IconAdd, IconPrint } from './Icons';
 
 interface CustomersProps {
   data: AppData;
   updateData: (updater: (prev: AppData) => AppData) => void;
+  onNavigateToInvoices?: (sale: Sale) => void;
 }
 
-const Customers: React.FC<CustomersProps> = ({ data, updateData }) => {
+type SummaryPeriod = 'week' | 'month' | 'year';
+type IndividualPrintMode = 'full' | 'sales_only' | 'pending_only' | 'summary';
+
+const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInvoices }) => {
   const [showForm, setShowForm] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [viewCustomer, setViewCustomer] = useState<Customer | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [paymentAmount, setPaymentAmount] = useState('');
+  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
   
+  // Printing & Summary State
+  const [showSummary, setShowSummary] = useState(false);
+  const [summaryPeriod, setSummaryPeriod] = useState<SummaryPeriod>('month');
+  const [isPrintingGlobalSummary, setIsPrintingGlobalSummary] = useState(false);
+  
+  // Individual Print Config
+  const [indivPrintMode, setIndivPrintMode] = useState<IndividualPrintMode>('full');
+  const [indivIncludeDues, setIndivIncludeDues] = useState(true);
+
   const [formData, setFormData] = useState({
     name: '',
     phone: '',
@@ -22,6 +36,51 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData }) => {
     address: '',
     gst: ''
   });
+
+  const isAdmin = data.currentUser?.role === 'admin';
+
+  // Summary Calculations for Global Dashboard
+  const summaryData = useMemo(() => {
+    const now = new Date();
+    const todayStr = now.toISOString().split('T')[0];
+    const currentMonthStr = todayStr.substring(0, 7);
+    const currentYearStr = todayStr.substring(0, 4);
+    
+    const getWeekStart = () => {
+      const d = new Date();
+      const day = d.getDay();
+      const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+      return new Date(d.setDate(diff)).toISOString().split('T')[0];
+    };
+    const weekStartStr = getWeekStart();
+
+    const validSales = data.sales.filter(s => !s.isMistake);
+    let filtered;
+    
+    if (summaryPeriod === 'week') {
+      filtered = validSales.filter(s => s.date >= weekStartStr);
+    } else if (summaryPeriod === 'month') {
+      filtered = validSales.filter(s => s.date.startsWith(currentMonthStr));
+    } else {
+      filtered = validSales.filter(s => s.date.startsWith(currentYearStr));
+    }
+
+    const total = filtered.reduce((sum, s) => sum + s.totalAmount, 0);
+    return { total, count: filtered.length, items: filtered };
+  }, [data.sales, summaryPeriod]);
+
+  // Global Customer Summary Table (Total Sales vs Pending)
+  const globalCustomerSummary = useMemo(() => {
+    return data.customers.map(c => {
+      const totalSales = data.sales
+        .filter(s => s.customerId === c.id && !s.isMistake)
+        .reduce((sum, s) => sum + s.totalAmount, 0);
+      return {
+        ...c,
+        totalSalesRevenue: totalSales
+      };
+    }).sort((a, b) => b.totalSalesRevenue - a.totalSalesRevenue);
+  }, [data.customers, data.sales]);
 
   const filteredCustomers = useMemo(() => {
     return data.customers.filter(c => 
@@ -57,19 +116,46 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData }) => {
     e.preventDefault();
     if (!viewCustomer || !paymentAmount) return;
     
-    const amount = Number(paymentAmount);
-    if (isNaN(amount) || amount <= 0) return;
+    const amountToClear = Number(paymentAmount);
+    if (isNaN(amountToClear) || amountToClear <= 0) return;
 
-    updateData(prev => ({
-      ...prev,
-      customers: prev.customers.map(c => 
-        c.id === viewCustomer.id ? { ...c, pendingBalance: Math.max(0, c.pendingBalance - amount) } : c
-      )
-    }));
+    updateData(prev => {
+      let remainingPayment = amountToClear;
+      const updatedSales = [...prev.sales];
+      
+      const pendingSales = updatedSales
+        .filter(s => s.customerId === viewCustomer.id && s.paymentMethod === 'Pending')
+        .sort((a, b) => a.date.localeCompare(b.date));
+
+      for (let sale of pendingSales) {
+        if (remainingPayment <= 0) break;
+        if (remainingPayment >= sale.totalAmount) {
+          remainingPayment -= sale.totalAmount;
+          const saleIdx = updatedSales.findIndex(s => s.id === sale.id);
+          if (saleIdx !== -1) {
+            updatedSales[saleIdx] = { 
+              ...updatedSales[saleIdx], 
+              paymentMethod: 'Cash', 
+              paidDate: paymentDate 
+            };
+          }
+        } else {
+          break;
+        }
+      }
+
+      return {
+        ...prev,
+        sales: updatedSales,
+        customers: prev.customers.map(c => 
+          c.id === viewCustomer.id ? { ...c, pendingBalance: Math.max(0, c.pendingBalance - amountToClear) } : c
+        )
+      };
+    });
     
-    setViewCustomer(prev => prev ? { ...prev, pendingBalance: Math.max(0, prev.pendingBalance - amount) } : null);
+    setViewCustomer(prev => prev ? { ...prev, pendingBalance: Math.max(0, prev.pendingBalance - amountToClear) } : null);
     setPaymentAmount('');
-    alert('Payment recorded successfully!');
+    alert('Payment settlement complete.');
   };
 
   const startEdit = (customer: Customer) => {
@@ -84,6 +170,23 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData }) => {
     setShowForm(true);
   };
 
+  const handleQuickPrint = (customer: Customer) => {
+    setIndivPrintMode('full');
+    setIndivIncludeDues(true);
+    setViewCustomer(customer);
+    setTimeout(() => {
+      window.print();
+    }, 200);
+  };
+
+  const handleGlobalSummaryPrint = () => {
+    setIsPrintingGlobalSummary(true);
+    setTimeout(() => {
+      window.print();
+      setIsPrintingGlobalSummary(false);
+    }, 200);
+  };
+
   const closeForm = () => {
     setShowForm(false);
     setEditingCustomer(null);
@@ -91,10 +194,14 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData }) => {
   };
 
   const deleteCustomer = (id: string) => {
+    if (!isAdmin) {
+      alert("Only admins can delete customers.");
+      return;
+    }
     const customerToDelete = data.customers.find(c => c.id === id);
     if (!customerToDelete) return;
 
-    if (confirm('Move this customer profile to Recycle Bin? Historic sales will be kept but unlinked.')) {
+    if (window.confirm(`MOVE TO TRASH: Are you sure you want to delete "${customerToDelete.name}"?`)) {
       updateData(prev => ({
         ...prev,
         customers: prev.customers.filter(c => c.id !== id),
@@ -107,281 +214,349 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData }) => {
     }
   };
 
-  const handlePrintPending = () => {
-    window.print();
-  };
-
   if (viewCustomer) {
-    const customerSales = data.sales.filter(s => s.customerId === viewCustomer.id);
-    const totalSpent = customerSales.reduce((sum, s) => sum + s.totalAmount, 0);
+    const customerSales = useMemo(() => {
+      let filtered = data.sales.filter(s => s.customerId === viewCustomer.id && !s.isMistake);
+      if (indivPrintMode === 'pending_only') {
+        filtered = filtered.filter(s => s.paymentMethod === 'Pending');
+      }
+      return filtered.sort((a, b) => b.date.localeCompare(a.date));
+    }, [data.sales, viewCustomer.id, indivPrintMode]);
 
     return (
       <div className="space-y-6 animate-in fade-in duration-300">
-        <div className="no-print flex items-center justify-between">
-          <button onClick={() => setViewCustomer(null)} className="text-indigo-600 font-bold flex items-center space-x-2 bg-indigo-50 px-4 py-2 rounded-xl">
+        <div className="no-print flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-[32px] border border-slate-200">
+          <button onClick={() => setViewCustomer(null)} className="text-indigo-600 font-bold flex items-center space-x-2 bg-indigo-50 px-4 py-2 rounded-xl hover:bg-indigo-100 transition-colors">
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
-            <span>Back to Customers</span>
+            <span>Back to List</span>
           </button>
-          <button 
-            onClick={handlePrintPending}
-            className="flex items-center space-x-2 bg-slate-900 text-white px-6 py-2 rounded-xl font-bold hover:bg-slate-800 transition-all active:scale-95"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" /></svg>
-            <span>Print Pending Summary</span>
-          </button>
+          
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200">
+              <button 
+                onClick={() => setIndivPrintMode('full')} 
+                className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${indivPrintMode === 'full' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}
+              >Full</button>
+              <button 
+                onClick={() => setIndivPrintMode('sales_only')} 
+                className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${indivPrintMode === 'sales_only' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}
+              >All Sales</button>
+              <button 
+                onClick={() => setIndivPrintMode('pending_only')} 
+                className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${indivPrintMode === 'pending_only' ? 'bg-white text-rose-600 shadow-sm' : 'text-slate-400'}`}
+              >Unpaid Only</button>
+            </div>
+
+            <button 
+              onClick={() => setIndivIncludeDues(!indivIncludeDues)}
+              className={`px-4 py-1.5 rounded-xl text-[10px] font-black uppercase border transition-all ${indivIncludeDues ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-slate-50 border-slate-200 text-slate-400'}`}
+            >
+              {indivIncludeDues ? '✓ With Net Dues' : 'Hide Net Dues'}
+            </button>
+
+            <button 
+              onClick={() => window.print()}
+              className="flex items-center space-x-2 bg-slate-900 text-white px-6 py-2 rounded-xl font-bold hover:bg-slate-800 transition-all active:scale-95"
+            >
+              <IconPrint />
+              <span>Print Mode</span>
+            </button>
+          </div>
         </div>
         
-        <div className="print-area bg-white md:bg-transparent md:shadow-none shadow-sm rounded-3xl p-0">
-          <div className="bg-indigo-900 rounded-3xl p-8 text-white shadow-xl flex flex-col md:flex-row justify-between gap-6 relative overflow-hidden print:bg-white print:text-black print:shadow-none print:border-b-2 print:border-black print:rounded-none">
+        <div className="print-area bg-white shadow-sm rounded-3xl p-0 overflow-hidden">
+          <div className={`bg-indigo-900 rounded-3xl p-8 text-white shadow-xl flex flex-col md:flex-row justify-between gap-6 relative overflow-hidden print:bg-white print:text-black print:shadow-none print:border-b-2 print:border-black print:rounded-none`}>
             <div className="hidden print:block text-center w-full mb-6">
                {data.business?.logo && <img src={data.business.logo} alt="Logo" className="w-24 h-24 mx-auto mb-2 object-contain" />}
                <h1 className="text-xl font-black uppercase">{data.business?.name}</h1>
                <p className="text-[10px] opacity-70 italic">{data.business?.tagline}</p>
                <p className="text-[10px] font-bold mt-2">{data.business?.address} | Ph: {data.business?.phone}</p>
-               <h2 className="text-lg font-black mt-4 border-y border-black py-1 uppercase tracking-widest">Account Statement</h2>
+               <h2 className="text-lg font-black mt-4 border-y border-black py-1 uppercase tracking-widest">
+                {indivPrintMode === 'sales_only' ? 'Complete Sales Registry' : 
+                 indivPrintMode === 'pending_only' ? 'Pending Dues Ledger' : 'Account Statement'}
+               </h2>
             </div>
 
             <div className="relative z-10 print:w-1/2 print:text-left">
-              <p className="hidden print:block text-[8px] font-black uppercase opacity-50">Customer Details</p>
-              <h2 className="text-3xl font-black mb-2 print:text-xl">{viewCustomer.name}</h2>
+              <p className="hidden print:block text-[8px] font-black uppercase opacity-50">Profile</p>
+              <h2 className="text-3xl font-black mb-2 print:text-xl uppercase">{viewCustomer.name}</h2>
               <div className="flex flex-wrap gap-4 text-sm font-medium opacity-80 print:text-[10px] print:opacity-100">
                 <span>📞 {viewCustomer.phone}</span>
                 {viewCustomer.email && <span>✉️ {viewCustomer.email}</span>}
-                {viewCustomer.gst && <span className="px-2 py-0.5 bg-white/10 rounded text-[10px] uppercase print:border print:border-black print:text-black">GST: {viewCustomer.gst}</span>}
+                {viewCustomer.gst && <span className="px-2 py-0.5 bg-white/10 rounded text-[10px] uppercase print:border print:border-black print:text-black font-bold">GST: {viewCustomer.gst}</span>}
               </div>
-              <p className="mt-4 text-xs opacity-60 max-w-md print:opacity-100 print:text-[8px]">{viewCustomer.address || 'No address provided'}</p>
+              <p className="mt-4 text-xs opacity-60 max-w-md print:opacity-100 print:text-[8px] font-medium">{viewCustomer.address || 'Address not listed'}</p>
             </div>
             
-            <div className="text-right relative z-10 flex flex-col justify-center print:w-1/2">
-              <div className="bg-white/10 p-4 rounded-2xl border border-white/10 backdrop-blur-sm print:bg-slate-50 print:border-black print:text-black">
-                  <p className="text-[10px] uppercase font-black opacity-50 tracking-[0.2em] mb-1 print:opacity-100">Current Balance Due</p>
-                  <p className={`text-5xl font-black print:text-3xl ${viewCustomer.pendingBalance > 0 ? 'text-red-400 print:text-black' : 'text-emerald-400 print:text-black'}`}>₹{viewCustomer.pendingBalance.toLocaleString()}</p>
-                  <p className="hidden print:block text-[8px] font-bold mt-2">Statement Generated: {new Date().toLocaleString()}</p>
+            {(indivIncludeDues || !window.matchMedia('print').matches) && (
+              <div className={`text-right relative z-10 flex flex-col justify-center print:w-1/2 ${!indivIncludeDues ? 'print:hidden' : ''}`}>
+                <div className="bg-white/10 p-5 rounded-2xl border border-white/10 backdrop-blur-sm print:bg-slate-50 print:border-black print:text-black">
+                    <p className="text-[10px] uppercase font-black opacity-50 tracking-[0.2em] mb-1 print:opacity-100">Net Outstanding</p>
+                    <p className={`text-5xl font-black print:text-3xl ${viewCustomer.pendingBalance > 0 ? 'text-red-400 print:text-black' : 'text-emerald-400 print:text-black'}`}>₹{viewCustomer.pendingBalance.toLocaleString()}</p>
+                    <p className="hidden print:block text-[8px] font-bold mt-2">Ledger Extracted: {new Date().toLocaleDateString()}</p>
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-8">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-8 p-8 pt-0">
               <div className="lg:col-span-1 space-y-6 no-print">
-                  <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-200">
-                      <h4 className="text-sm font-black text-slate-800 uppercase tracking-widest mb-6 border-b pb-4">Record Payment</h4>
+                  <div className="bg-slate-50 rounded-3xl p-8 border border-slate-100">
+                      <h4 className="text-sm font-black text-slate-800 uppercase tracking-widest mb-6 border-b border-slate-200 pb-4">Record Collection</h4>
                       <form onSubmit={handleRecordPayment} className="space-y-4">
                           <div>
-                              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Amount Received (₹)</label>
-                              <input 
-                                  type="number" 
-                                  required
-                                  value={paymentAmount}
-                                  onChange={e => setPaymentAmount(e.target.value)}
-                                  className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-black text-lg"
-                                  placeholder="0.00"
-                              />
+                              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Collection Date</label>
+                              <input type="date" required value={paymentDate} onChange={e => setPaymentDate(e.target.value)} className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none font-bold" />
                           </div>
-                          <button type="submit" className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl shadow-lg transition-all active:scale-95 text-xs uppercase tracking-widest">
-                              Settle Payment
-                          </button>
+                          <div>
+                              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Collected Amount (₹)</label>
+                              <input type="number" required value={paymentAmount} onChange={e => setPaymentAmount(e.target.value)} className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none font-black text-lg" placeholder="0.00" />
+                          </div>
+                          <button type="submit" className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl shadow-lg transition-all active:scale-95 text-xs uppercase tracking-widest">Update Balance</button>
                       </form>
                   </div>
               </div>
 
-              <div className="lg:col-span-2 bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden print:border-none print:shadow-none print:w-full print:block">
+              <div className={`lg:col-span-2 bg-white rounded-3xl border border-slate-100 overflow-hidden print:border-none print:shadow-none print:w-full print:block`}>
                   <div className="px-8 py-4 bg-slate-50 border-b flex justify-between items-center print:bg-white print:border-black">
-                      <h4 className="font-black text-slate-800 uppercase text-xs tracking-widest print:text-sm">Transaction Summary</h4>
+                      <h4 className="font-black text-slate-800 uppercase text-xs tracking-widest print:text-sm">
+                        {indivPrintMode === 'sales_only' ? 'Complete History' : 
+                         indivPrintMode === 'pending_only' ? 'Outstanding Dues List' : 'Transaction History'}
+                      </h4>
+                      {indivPrintMode === 'pending_only' && <span className="no-print bg-rose-100 text-rose-700 text-[9px] font-black px-2 py-1 rounded uppercase">Filtering unpaid items</span>}
                   </div>
                   <div className="overflow-x-auto">
-                      <table className="w-full text-left text-sm print:text-xs">
+                      <table className="w-full text-left text-sm print:text-[10px]">
                       <thead className="bg-slate-50/50 border-b text-[10px] font-black text-slate-400 uppercase tracking-widest print:text-black print:border-black">
                           <tr>
                           <th className="px-8 py-4">Date</th>
                           <th className="px-8 py-4">Invoice #</th>
                           <th className="px-8 py-4">Mode</th>
                           <th className="px-8 py-4 text-right">Amount</th>
+                          <th className="px-8 py-4 text-center no-print">View</th>
                           </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 print:divide-black">
                           {customerSales.map(s => (
-                          <tr key={s.id} className="hover:bg-slate-50 transition-colors print:hover:bg-transparent">
-                              <td className="px-8 py-4 font-medium text-slate-600 print:text-black">{new Date(s.date).toLocaleDateString()}</td>
-                              <td className="px-8 py-4"><span className="font-mono font-black text-indigo-600 bg-indigo-50 px-2 py-1 rounded print:bg-transparent print:text-black print:p-0 print:border-b">#{s.invoiceNumber.split('-')[1]}</span></td>
+                          <tr key={s.id} className="hover:bg-slate-50 transition-colors">
+                              <td className="px-8 py-4 font-bold text-slate-600 print:text-black">
+                                {new Date(s.date).toLocaleDateString()}
+                              </td>
+                              <td className="px-8 py-4 font-black text-indigo-600 tracking-tighter">#{s.invoiceNumber.split('-')[1]}</td>
                               <td className="px-8 py-4">
                                   <span className={`text-[10px] font-black uppercase px-2 py-1 rounded border ${
-                                      s.paymentMethod === 'Pending' ? 'bg-orange-50 text-orange-600 border-orange-100' : 'bg-slate-100 text-slate-500 border-slate-200'
-                                  } print:border-none print:bg-transparent print:text-black`}>
-                                      {s.paymentMethod || 'Cash'}
+                                      s.paymentMethod === 'Pending' ? 'bg-orange-50 text-orange-600 border-orange-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'
+                                  } print:border-none`}>
+                                      {s.paymentMethod}
                                   </span>
                               </td>
-                              <td className="px-8 py-4 text-right font-black text-slate-800 print:text-black">₹{s.totalAmount.toLocaleString()}</td>
+                              <td className="px-8 py-4 text-right font-black text-slate-800">₹{s.totalAmount.toLocaleString()}</td>
+                              <td className="px-8 py-4 text-center no-print">
+                                <button onClick={() => onNavigateToInvoices && onNavigateToInvoices(s)} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg">
+                                  <IconPrint className="w-4 h-4" />
+                                </button>
+                              </td>
                           </tr>
                           ))}
                           {customerSales.length === 0 && (
-                          <tr><td colSpan={4} className="px-8 py-20 text-center text-slate-400 font-medium print:text-black">No recent history.</td></tr>
+                            <tr>
+                              <td colSpan={5} className="py-20 text-center text-slate-400 font-bold uppercase text-xs tracking-widest italic">No matching records found for this view</td>
+                            </tr>
                           )}
                       </tbody>
-                      <tfoot>
-                        <tr className="bg-slate-900 text-white print:bg-white print:text-black print:border-t-2 print:border-black">
-                          <td colSpan={3} className="px-8 py-4 font-black uppercase text-right tracking-widest">Final Outstanding</td>
-                          <td className="px-8 py-4 text-right font-black text-lg">₹{viewCustomer.pendingBalance.toLocaleString()}</td>
-                        </tr>
-                      </tfoot>
+                      {indivIncludeDues && (
+                        <tfoot>
+                          <tr className="bg-slate-900 text-white print:bg-white print:text-black print:border-t-2 print:border-black">
+                            <td colSpan={3} className="px-8 py-4 font-black uppercase text-right tracking-widest">Calculated Balance Due</td>
+                            <td className="px-8 py-4 text-right font-black text-xl">₹{viewCustomer.pendingBalance.toLocaleString()}</td>
+                            <td className="no-print"></td>
+                          </tr>
+                        </tfoot>
+                      )}
                       </table>
                   </div>
               </div>
           </div>
         </div>
-        
-        <style dangerouslySetInnerHTML={{ __html: `
-          @media print {
-            body * { visibility: hidden; }
-            .print-area, .print-area * { visibility: visible; }
-            .print-area { 
-              position: absolute; 
-              left: 0; 
-              top: 0; 
-              width: 100%; 
-              background: white !important;
-            }
-            .no-print { display: none !important; }
-            @page { margin: 1cm; }
-          }
-        `}} />
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="relative flex-1 max-w-md">
-           <svg className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-           <input 
-             type="text" 
-             placeholder="Search by name or phone..." 
-             className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 transition-all shadow-sm"
-             value={searchTerm}
-             onChange={e => setSearchTerm(e.target.value)}
-           />
-        </div>
-        <button
-          onClick={() => setShowForm(true)}
-          className="flex items-center justify-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-2xl font-bold transition-all shadow-lg active:scale-95"
-        >
-          <IconAdd />
-          <span>New Customer</span>
-        </button>
+      {/* Top Action Bar */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 bg-white p-6 rounded-[32px] border border-slate-200 shadow-sm no-print">
+         <div className="flex flex-col md:flex-row items-center gap-4 flex-1">
+            <div className="relative w-full md:w-80">
+                <svg className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                <input type="text" placeholder="Search customer records..." className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-medium" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+            </div>
+            <button 
+              onClick={() => setShowSummary(!showSummary)} 
+              className={`flex items-center space-x-2 px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all ${showSummary ? 'bg-indigo-600 text-white shadow-lg' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+            >
+               <span>Global Analysis</span>
+            </button>
+         </div>
+         <div className="flex items-center gap-2">
+            <button 
+              onClick={handleGlobalSummaryPrint} 
+              className="px-6 py-3 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:bg-black transition-all"
+            >
+              Print Sales Summary
+            </button>
+            <button onClick={() => setShowForm(true)} className="flex items-center justify-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl transition-all active:scale-95">
+              <IconAdd /><span>Enroll Client</span>
+            </button>
+         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {filteredCustomers.map(customer => {
-          return (
-            <div key={customer.id} className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 hover:shadow-xl hover:border-indigo-200 transition-all group relative overflow-hidden">
-              <div className="flex justify-between items-start mb-4">
-                <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-black text-xl border border-indigo-100 shadow-inner">
-                  {customer.name.charAt(0)}
-                </div>
-                <div className="flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button onClick={() => startEdit(customer)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-colors">
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                  </button>
-                  <button onClick={() => deleteCustomer(customer.id)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-colors">
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                  </button>
-                </div>
+      {/* Global Sales Insight Bar */}
+      {showSummary && (
+        <div className="bg-indigo-900 text-white p-8 rounded-[40px] shadow-2xl border border-indigo-800 animate-in slide-in-from-top-4 duration-300 relative overflow-hidden no-print">
+           <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500 rounded-full blur-[100px] opacity-20 -mr-32 -mt-32"></div>
+           <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-8">
+              <div>
+                 <p className="text-indigo-300 font-black uppercase text-[10px] tracking-[0.4em] mb-2">Aggregate Revenue Report</p>
+                 <div className="flex items-baseline space-x-4">
+                    <h3 className="text-5xl font-black tracking-tighter">₹{summaryData.total.toLocaleString()}</h3>
+                    <span className="text-indigo-300 font-bold uppercase text-xs">{summaryData.count} Transactions</span>
+                 </div>
               </div>
-              <h4 className="text-lg font-black text-slate-800 mb-1 truncate">{customer.name}</h4>
-              <p className="text-sm text-slate-500 mb-6 font-bold flex items-center gap-1">
-                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1.01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
-                {customer.phone}
-              </p>
-              
-              <div className="flex items-center justify-between pt-5 border-t border-slate-100">
-                <div>
-                  <p className="text-[10px] uppercase font-black text-slate-400 tracking-widest mb-0.5">Due Balance</p>
-                  <p className={`text-base font-black ${customer.pendingBalance > 0 ? 'text-red-600' : 'text-emerald-600'}`}>₹{customer.pendingBalance?.toLocaleString() || 0}</p>
-                </div>
-                <button 
-                  onClick={() => setViewCustomer(customer)} 
-                  className="px-4 py-1.5 bg-indigo-50 text-indigo-600 text-[10px] font-black uppercase rounded-full hover:bg-indigo-600 hover:text-white transition-all shadow-sm"
-                >
-                  Manage Dues
+              <div className="flex flex-col items-end gap-4">
+                  <div className="flex bg-indigo-950/40 p-1.5 rounded-2xl border border-white/10">
+                    {(['week', 'month', 'year'] as SummaryPeriod[]).map(p => (
+                      <button 
+                        key={p} 
+                        onClick={() => setSummaryPeriod(p)}
+                        className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${summaryPeriod === p ? 'bg-indigo-600 text-white shadow-lg' : 'text-indigo-300 hover:text-white'}`}
+                      >
+                        {p}
+                      </button>
+                    ))}
+                  </div>
+              </div>
+           </div>
+        </div>
+      )}
+
+      {/* Grid of Customers */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 no-print">
+        {filteredCustomers.map(customer => (
+          <div key={customer.id} className="bg-white p-6 rounded-[32px] shadow-sm border border-slate-200 hover:shadow-xl hover:border-indigo-200 transition-all group relative">
+            <div className="flex justify-between items-start mb-4">
+              <div className="w-14 h-14 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-black text-2xl border border-indigo-100">{customer.name.charAt(0)}</div>
+              <div className="flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button onClick={() => handleQuickPrint(customer)} className="p-2 text-slate-400 hover:text-slate-900 bg-slate-50 rounded-xl" title="Print Ledger">
+                  <IconPrint className="w-5 h-5" />
                 </button>
+                <button onClick={() => startEdit(customer)} className="p-2 text-slate-400 hover:text-indigo-600 bg-slate-50 rounded-xl" title="Edit Profile">
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                </button>
+                {isAdmin && (
+                  <button onClick={() => deleteCustomer(customer.id)} className="p-2 text-slate-400 hover:text-rose-600 bg-slate-50 rounded-xl" title="Remove Client">
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                  </button>
+                )}
               </div>
             </div>
-          );
-        })}
+            <h4 className="text-xl font-black text-slate-800 mb-1 truncate uppercase tracking-tight">{customer.name}</h4>
+            <p className="text-sm text-slate-500 mb-6 font-bold flex items-center gap-1">📞 {customer.phone}</p>
+            
+            <div className="flex items-center justify-between pt-5 border-t border-slate-100">
+              <div>
+                <p className="text-[10px] uppercase font-black text-slate-400 tracking-widest mb-0.5">Dues Amount</p>
+                <p className={`text-xl font-black ${customer.pendingBalance > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>₹{customer.pendingBalance?.toLocaleString() || 0}</p>
+              </div>
+              <button onClick={() => setViewCustomer(customer)} className="px-5 py-2 bg-slate-900 text-white text-[10px] font-black uppercase rounded-xl hover:bg-indigo-600 transition-all shadow-md">Open Ledger</button>
+            </div>
+          </div>
+        ))}
       </div>
+
+      {/* Global Summary Print View (Total Sales Summary) */}
+      {isPrintingGlobalSummary && (
+        <div className="print-only hidden print:block bg-white text-black p-10" style={{ fontFamily: 'sans-serif' }}>
+           <div className="text-center mb-10 border-b-2 border-black pb-8">
+              {data.business?.logo && <img src={data.business.logo} alt="Logo" className="w-32 mx-auto mb-4 object-contain" />}
+              <h1 className="text-4xl font-black uppercase">{data.business?.name}</h1>
+              <h2 className="text-xl font-bold uppercase tracking-[0.2em] mt-2">Customer Sales & Dues Summary</h2>
+              <p className="text-[10px] mt-2 font-bold italic">Generated on: {new Date().toLocaleString()}</p>
+           </div>
+
+           <table className="w-full border-collapse">
+              <thead>
+                  <tr className="bg-gray-100 border-y-2 border-black">
+                      <th className="p-3 text-left text-[10px] uppercase font-black">Customer Name</th>
+                      <th className="p-3 text-left text-[10px] uppercase font-black">Phone</th>
+                      <th className="p-3 text-right text-[10px] uppercase font-black">Total Sales (Life)</th>
+                      <th className="p-3 text-right text-[10px] uppercase font-black">Pending Dues</th>
+                  </tr>
+              </thead>
+              <tbody>
+                  {globalCustomerSummary.map((c, i) => (
+                      <tr key={i} className="border-b border-gray-300">
+                          <td className="p-3 text-xs font-bold uppercase">{c.name}</td>
+                          <td className="p-3 text-xs">{c.phone}</td>
+                          <td className="p-3 text-xs text-right font-black">₹{c.totalSalesRevenue.toLocaleString()}</td>
+                          <td className="p-3 text-xs text-right font-black">₹{c.pendingBalance.toLocaleString()}</td>
+                      </tr>
+                  ))}
+              </tbody>
+              <tfoot>
+                <tr className="bg-gray-50 border-t-2 border-black font-black">
+                   <td colSpan={2} className="p-3 text-right uppercase text-[10px]">Grand Consolidated Totals</td>
+                   <td className="p-3 text-right text-sm">₹{globalCustomerSummary.reduce((sum, c) => sum + c.totalSalesRevenue, 0).toLocaleString()}</td>
+                   <td className="p-3 text-right text-sm">₹{globalCustomerSummary.reduce((sum, c) => sum + c.pendingBalance, 0).toLocaleString()}</td>
+                </tr>
+              </tfoot>
+           </table>
+
+           <div className="mt-24 pt-10 border-t border-black flex justify-between px-10">
+              <div className="text-center">
+                 <div className="w-40 border-b border-black mb-2"></div>
+                 <p className="text-[10px] font-black uppercase tracking-widest">Accounts Verification</p>
+              </div>
+              <div className="text-center">
+                 <div className="w-40 border-b border-black mb-2"></div>
+                 <p className="text-[10px] font-black uppercase tracking-widest">Authorized Signature</p>
+              </div>
+           </div>
+        </div>
+      )}
 
       {showForm && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+          <div className="bg-white w-full max-w-lg rounded-[40px] shadow-2xl overflow-hidden">
             <div className="bg-indigo-600 px-8 py-6 text-white flex justify-between items-center">
               <div>
-                <h3 className="text-xl font-bold uppercase tracking-tight">{editingCustomer ? 'Update Profile' : 'New Customer ID'}</h3>
-                <p className="text-[10px] text-indigo-100 font-bold uppercase tracking-widest mt-1">A M Food processing Records</p>
+                <h3 className="text-xl font-black uppercase tracking-tight">{editingCustomer ? 'Modify Profile' : 'New Customer'}</h3>
+                <p className="text-[10px] text-indigo-100 font-bold uppercase tracking-widest mt-1">Registry Entry</p>
               </div>
-              <button onClick={closeForm} className="p-2 hover:bg-white/10 rounded-full transition-colors">
-                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-              </button>
+              <button onClick={closeForm} className="p-2 hover:bg-white/10 rounded-full transition-colors"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
             </div>
             <form onSubmit={handleSubmit} className="p-8 space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="col-span-2">
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Customer Full Name *</label>
-                  <input 
-                    type="text" 
-                    required 
-                    value={formData.name} 
-                    onChange={e => setFormData({ ...formData, name: e.target.value })} 
-                    className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium" 
-                    placeholder="e.g. Rahul Sharma"
-                  />
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Full Name *</label>
+                  <input type="text" required value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none font-bold uppercase" placeholder="e.g. ARUN FOODS" />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Phone Number *</label>
-                  <input 
-                    type="tel" 
-                    required 
-                    value={formData.phone} 
-                    onChange={e => setFormData({ ...formData, phone: e.target.value })} 
-                    className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium" 
-                    placeholder="9998887776"
-                  />
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Phone *</label>
+                  <input type="tel" required value={formData.phone} onChange={e => setFormData({ ...formData, phone: e.target.value })} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none font-bold" />
                 </div>
                 <div>
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">GSTIN (Optional)</label>
-                  <input 
-                    type="text" 
-                    value={formData.gst} 
-                    onChange={e => setFormData({ ...formData, gst: e.target.value })} 
-                    className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium uppercase" 
-                    placeholder="24AAAAA0000A1Z5"
-                  />
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">GSTIN</label>
+                  <input type="text" value={formData.gst} onChange={e => setFormData({ ...formData, gst: e.target.value })} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none font-bold uppercase" />
                 </div>
                 <div className="col-span-2">
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Email Address</label>
-                  <input 
-                    type="email" 
-                    value={formData.email} 
-                    onChange={e => setFormData({ ...formData, email: e.target.value })} 
-                    className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium" 
-                    placeholder="customer@example.com"
-                  />
-                </div>
-                <div className="col-span-2">
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Business Address</label>
-                  <textarea 
-                    rows={2} 
-                    value={formData.address} 
-                    onChange={e => setFormData({ ...formData, address: e.target.value })} 
-                    className="w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-medium" 
-                    placeholder="Shop No, Street, City..."
-                  />
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Address</label>
+                  <textarea rows={2} value={formData.address} onChange={e => setFormData({ ...formData, address: e.target.value })} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none font-bold" />
                 </div>
               </div>
               <div className="flex gap-4 pt-6">
-                <button type="button" onClick={closeForm} className="flex-1 px-6 py-3 border border-slate-200 text-slate-600 font-bold rounded-xl hover:bg-slate-50 transition-colors">Discard</button>
-                <button type="submit" className="flex-1 px-6 py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-lg hover:bg-indigo-700 transition-all active:scale-95">
-                  {editingCustomer ? 'Update Records' : 'Save Customer'}
-                </button>
+                <button type="button" onClick={closeForm} className="flex-1 px-6 py-4 border border-slate-200 text-slate-500 font-black rounded-2xl uppercase text-[10px] tracking-widest hover:bg-slate-50">Cancel</button>
+                <button type="submit" className="flex-1 px-6 py-4 bg-indigo-600 text-white font-black rounded-2xl shadow-xl uppercase text-[10px] tracking-widest hover:bg-indigo-700">Save Identity</button>
               </div>
             </form>
           </div>
