@@ -12,6 +12,8 @@ interface CustomersProps {
 type SummaryPeriod = 'week' | 'month' | 'year';
 type IndividualPrintMode = 'full' | 'sales_only' | 'pending_only' | 'summary';
 type PrintSize = 'A4' | 'Thermal80' | 'Thermal58';
+type CustomerSortKey = 'name' | 'dues' | 'revenue' | 'date';
+type SortDirection = 'asc' | 'desc';
 
 const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInvoices }) => {
   const [showForm, setShowForm] = useState(false);
@@ -21,6 +23,10 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
   
+  // Sorting State
+  const [sortKey, setSortKey] = useState<CustomerSortKey>('name');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+
   // Printing & Summary State
   const [showSummary, setShowSummary] = useState(false);
   const [summaryPeriod, setSummaryPeriod] = useState<SummaryPeriod>('month');
@@ -41,7 +47,50 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
 
   const isAdmin = data.currentUser?.role === 'admin';
 
-  // HOOKS MUST BE AT TOP LEVEL - Ensuring no null access
+  // Revenue calculation helper used for sorting and global stats
+  const getCustomerRevenue = (customerId: string) => {
+    return (data.sales || [])
+      .filter(s => s.customerId === customerId && !s.isMistake)
+      .reduce((sum, s) => sum + s.totalAmount, 0);
+  };
+
+  const sortedAndFilteredCustomers = useMemo(() => {
+    // 1. Filter
+    const filtered = (data.customers || []).filter(c => 
+      c.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+      c.phone.includes(searchTerm)
+    );
+
+    // 2. Sort
+    return [...filtered].sort((a, b) => {
+      let comparison = 0;
+      switch (sortKey) {
+        case 'name':
+          comparison = a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+          break;
+        case 'dues':
+          comparison = (a.pendingBalance || 0) - (b.pendingBalance || 0);
+          break;
+        case 'revenue':
+          comparison = getCustomerRevenue(a.id) - getCustomerRevenue(b.id);
+          break;
+        case 'date':
+          comparison = (a.createdAt || '').localeCompare(b.createdAt || '');
+          break;
+      }
+      return sortDirection === 'asc' ? comparison : -comparison;
+    });
+  }, [data.customers, data.sales, searchTerm, sortKey, sortDirection]);
+
+  const toggleSort = (key: CustomerSortKey) => {
+    if (sortKey === key) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortKey(key);
+      setSortDirection(key === 'name' || key === 'date' ? 'asc' : 'desc');
+    }
+  };
+
   const summaryData = useMemo(() => {
     const now = new Date();
     const todayStr = now.toISOString().split('T')[0];
@@ -73,22 +122,13 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
 
   const globalCustomerSummary = useMemo(() => {
     return (data.customers || []).map(c => {
-      const totalSales = (data.sales || [])
-        .filter(s => s.customerId === c.id && !s.isMistake)
-        .reduce((sum, s) => sum + s.totalAmount, 0);
+      const totalSales = getCustomerRevenue(c.id);
       return {
         ...c,
         totalSalesRevenue: totalSales
       };
     }).sort((a, b) => b.totalSalesRevenue - a.totalSalesRevenue);
   }, [data.customers, data.sales]);
-
-  const filteredCustomers = useMemo(() => {
-    return (data.customers || []).filter(c => 
-      c.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-      c.phone.includes(searchTerm)
-    );
-  }, [data.customers, searchTerm]);
 
   const customerSales = useMemo(() => {
     if (!viewCustomer) return [];
@@ -224,6 +264,26 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
       }));
     }
   };
+
+  const SortButton: React.FC<{ label: string; keyName: CustomerSortKey }> = ({ label, keyName }) => (
+    <button 
+      onClick={() => toggleSort(keyName)}
+      className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center space-x-2 border shadow-sm ${
+        sortKey === keyName 
+          ? 'bg-indigo-600 text-white border-indigo-700' 
+          : 'bg-white text-slate-500 border-slate-200 hover:border-indigo-300 hover:text-indigo-600'
+      }`}
+    >
+      <span>{label}</span>
+      <span className={`transition-transform duration-200 ${sortKey === keyName && sortDirection === 'desc' ? 'rotate-180' : ''}`}>
+        {sortKey === keyName ? (
+          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 15l7-7 7 7" /></svg>
+        ) : (
+          <svg className="w-3 h-3 opacity-20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M8 9l4-4 4 4m0 6l-4 4-4-4" /></svg>
+        )}
+      </span>
+    </button>
+  );
 
   if (viewCustomer) {
     const isThermal = printSize === 'Thermal80' || printSize === 'Thermal58';
@@ -441,23 +501,31 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
       {/* Top Action Bar */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 bg-white p-6 rounded-[32px] border border-slate-200 shadow-sm no-print">
          <div className="flex flex-col md:flex-row items-center gap-4 flex-1">
-            <div className="relative w-full md:w-80">
+            <div className="relative w-full md:w-64">
                 <svg className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-                <input type="text" placeholder="Search customer records..." className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-medium" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                <input type="text" placeholder="Search records..." className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-medium" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
             </div>
+            
+            <div className="flex items-center space-x-2 bg-slate-50 p-1 rounded-2xl border border-slate-100 overflow-x-auto max-w-full">
+               <span className="text-[9px] font-black text-slate-400 uppercase ml-2 mr-1 shrink-0">Sort:</span>
+               <SortButton label="Name" keyName="name" />
+               <SortButton label="Dues" keyName="dues" />
+               <SortButton label="Revenue" keyName="revenue" />
+               <SortButton label="Joined" keyName="date" />
+            </div>
+         </div>
+         <div className="flex items-center gap-2">
             <button 
               onClick={() => setShowSummary(!showSummary)} 
               className={`flex items-center space-x-2 px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all ${showSummary ? 'bg-indigo-600 text-white shadow-lg' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
             >
-               <span>Global Analysis</span>
+               <span>Report View</span>
             </button>
-         </div>
-         <div className="flex items-center gap-2">
             <button 
               onClick={handleGlobalSummaryPrint} 
               className="px-6 py-3 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:bg-black transition-all"
             >
-              Print Sales Summary
+              Print List
             </button>
             <button onClick={() => setShowForm(true)} className="flex items-center justify-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl transition-all active:scale-95">
               <IconAdd /><span>Enroll Client</span>
@@ -496,39 +564,47 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
 
       {/* Grid of Customers */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 no-print">
-        {filteredCustomers.map(customer => (
-          <div key={customer.id} className="bg-white p-6 rounded-[32px] shadow-sm border border-slate-200 hover:shadow-xl hover:border-indigo-200 transition-all group relative">
-            <div className="flex justify-between items-start mb-4">
-              <div className="w-14 h-14 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-black text-2xl border border-indigo-100">{customer.name.charAt(0)}</div>
-              <div className="flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button onClick={() => handleQuickPrint(customer, 'pending_only')} className="p-2 text-rose-500 hover:text-rose-700 bg-rose-50 rounded-xl" title="Print Dues Statement">
-                  <IconPrint className="w-5 h-5" />
-                </button>
-                <button onClick={() => handleQuickPrint(customer, 'full')} className="p-2 text-slate-400 hover:text-slate-900 bg-slate-50 rounded-xl" title="Print Full Ledger">
-                  <IconPrint className="w-5 h-5" />
-                </button>
-                <button onClick={() => startEdit(customer)} className="p-2 text-slate-400 hover:text-indigo-600 bg-slate-50 rounded-xl" title="Edit Profile">
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
-                </button>
-                {isAdmin && (
-                  <button onClick={() => deleteCustomer(customer.id)} className="p-2 text-slate-400 hover:text-rose-600 bg-slate-50 rounded-xl" title="Remove Client">
-                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+        {sortedAndFilteredCustomers.map(customer => {
+          const revenue = getCustomerRevenue(customer.id);
+          return (
+            <div key={customer.id} className="bg-white p-6 rounded-[32px] shadow-sm border border-slate-200 hover:shadow-xl hover:border-indigo-200 transition-all group relative">
+              <div className="flex justify-between items-start mb-4">
+                <div className="w-14 h-14 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-black text-2xl border border-indigo-100">{customer.name.charAt(0)}</div>
+                <div className="flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button onClick={() => handleQuickPrint(customer, 'pending_only')} className="p-2 text-rose-500 hover:text-rose-700 bg-rose-50 rounded-xl" title="Print Dues Statement">
+                    <IconPrint className="w-5 h-5" />
                   </button>
-                )}
+                  <button onClick={() => handleQuickPrint(customer, 'full')} className="p-2 text-slate-400 hover:text-slate-900 bg-slate-50 rounded-xl" title="Print Full Ledger">
+                    <IconPrint className="w-5 h-5" />
+                  </button>
+                  <button onClick={() => startEdit(customer)} className="p-2 text-slate-400 hover:text-indigo-600 bg-slate-50 rounded-xl" title="Edit Profile">
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                  </button>
+                  {isAdmin && (
+                    <button onClick={() => deleteCustomer(customer.id)} className="p-2 text-slate-400 hover:text-rose-600 bg-slate-50 rounded-xl" title="Remove Client">
+                      <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                    </button>
+                  )}
+                </div>
+              </div>
+              <h4 className="text-xl font-black text-slate-800 mb-1 truncate uppercase tracking-tight">{customer.name}</h4>
+              <p className="text-sm text-slate-500 mb-2 font-bold flex items-center gap-1">📞 {customer.phone}</p>
+              
+              <div className="flex justify-between items-center mb-6">
+                <p className="text-[10px] text-slate-400 font-bold uppercase">Total Volume: <span className="text-indigo-600 font-black">₹{revenue.toLocaleString()}</span></p>
+                <p className="text-[8px] text-slate-300 font-bold uppercase">Since {new Date(customer.createdAt).toLocaleDateString()}</p>
+              </div>
+              
+              <div className="flex items-center justify-between pt-5 border-t border-slate-100">
+                <div>
+                  <p className="text-[10px] uppercase font-black text-slate-400 tracking-widest mb-0.5">Dues Amount</p>
+                  <p className={`text-xl font-black ${customer.pendingBalance > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>₹{customer.pendingBalance?.toLocaleString() || 0}</p>
+                </div>
+                <button onClick={() => setViewCustomer(customer)} className="px-5 py-2 bg-slate-900 text-white text-[10px] font-black uppercase rounded-xl hover:bg-indigo-600 transition-all shadow-md">Open Ledger</button>
               </div>
             </div>
-            <h4 className="text-xl font-black text-slate-800 mb-1 truncate uppercase tracking-tight">{customer.name}</h4>
-            <p className="text-sm text-slate-500 mb-6 font-bold flex items-center gap-1">📞 {customer.phone}</p>
-            
-            <div className="flex items-center justify-between pt-5 border-t border-slate-100">
-              <div>
-                <p className="text-[10px] uppercase font-black text-slate-400 tracking-widest mb-0.5">Dues Amount</p>
-                <p className={`text-xl font-black ${customer.pendingBalance > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>₹{customer.pendingBalance?.toLocaleString() || 0}</p>
-              </div>
-              <button onClick={() => setViewCustomer(customer)} className="px-5 py-2 bg-slate-900 text-white text-[10px] font-black uppercase rounded-xl hover:bg-indigo-600 transition-all shadow-md">Open Ledger</button>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Global Summary Print View (Total Sales Summary) */}

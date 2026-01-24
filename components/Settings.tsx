@@ -1,7 +1,6 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { AppData, BusinessInfo, AppTheme, User, Sale, Product, Customer, Expense, UpiQr } from '../types';
-import { initGoogleAuth, uploadToDrive, getBackupInfo, downloadFromDrive } from '../utils/googleDrive';
+import { initGoogleAuth, uploadToDrive, getBackupInfo, downloadFromDrive, hasAccessToken } from '../utils/googleDrive';
 import { initOneDriveAuth, uploadToOneDrive } from '../utils/oneDrive';
 
 interface SettingsProps {
@@ -73,7 +72,7 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
       if (email) setGoogleEmail(email);
       updateData(prev => ({ ...prev, isDriveConnected: true }));
       checkDriveBackup();
-      alert('Google Drive connected successfully!');
+      alert('Enterprise Account Verified Successfully!');
     });
   };
 
@@ -100,7 +99,7 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
       }));
       alert('System restored successfully from Google Drive!');
     } else {
-      alert('Failed to restore from Google Drive. Please check your connection.');
+      alert('Failed to restore from Google Drive. Your session might be stale - please click "Connect Account" again.');
     }
   };
 
@@ -112,6 +111,10 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
   };
 
   const syncDriveNow = async () => {
+    if (!hasAccessToken()) {
+        alert('Google Drive session has expired or unauthorized. Please click "Connect Account" and select amfoodsupt@gmail.com.');
+        return;
+    }
     setSyncingCloud('drive');
     const ok = await uploadToDrive(data, data.backupFolderName);
     setSyncingCloud(null);
@@ -119,7 +122,7 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
       alert('Backup successfully pushed to Google Drive.');
       checkDriveBackup();
     } else {
-      alert('Google Drive sync failed. Please reconnect.');
+      alert('Google Drive sync failed. Please try "Connect Account" again with the authorized email.');
     }
   };
 
@@ -363,7 +366,7 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
         <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
            <div className="bg-slate-900 border-b border-slate-950 px-8 py-6 text-white">
               <h3 className="text-xl font-black uppercase tracking-tight">Cloud Sync & Remote Backup</h3>
-              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Safely store all entries and credentials in your personal cloud</p>
+              <p className="text-[10px] text-rose-400 font-bold uppercase tracking-[0.2em] mt-2">Restriction: Authorized Account Only (amfoodsupt@gmail.com)</p>
            </div>
            <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8">
               {/* Google Drive */}
@@ -379,7 +382,7 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
                  </div>
                  <h4 className="font-black text-slate-800 uppercase text-xs tracking-widest mb-1">Google Drive</h4>
                  <div className="text-[10px] text-slate-500 font-bold uppercase mb-4 space-y-1">
-                    <p>{data.isDriveConnected ? (googleEmail ? `Linked: ${googleEmail}` : 'Connected') : 'Not connected to Drive'}</p>
+                    <p>{data.isDriveConnected ? (googleEmail ? `Linked: ${googleEmail}` : 'Connected') : 'Not connected'}</p>
                     {data.isDriveConnected && (
                       <div className="flex flex-col items-center">
                         {isCheckingDrive ? (
@@ -397,7 +400,7 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
                  <div className="mt-auto w-full grid grid-cols-1 gap-2">
                     {!data.isDriveConnected ? (
                       <button onClick={handleGoogleConnect} className="w-full py-2 bg-indigo-600 text-white text-[10px] font-black uppercase rounded-xl shadow hover:bg-indigo-700 transition-all">
-                        Connect Account
+                        Connect amfoodsupt@gmail.com
                       </button>
                     ) : (
                       <>
@@ -439,7 +442,7 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
                  </div>
                  <h4 className="font-black text-slate-800 uppercase text-xs tracking-widest mb-1">Microsoft OneDrive</h4>
                  <p className="text-[10px] text-slate-500 font-bold uppercase mb-4">
-                    {data.isOneDriveConnected ? 'OneDrive Linked' : 'Not connected to OneDrive'}
+                    {data.isOneDriveConnected ? 'OneDrive Linked' : 'Not connected'}
                  </p>
                  
                  <div className="mt-auto w-full space-y-2">

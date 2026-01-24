@@ -1,3 +1,4 @@
+
 {
   "name": "am-food-processing-manager",
   "private": true,
@@ -14,7 +15,8 @@
   "dependencies": {
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "recharts": "^2.15.0"
+    "recharts": "^2.15.0",
+    "@google/genai": "^1.38.0"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.1.0",

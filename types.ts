@@ -174,5 +174,6 @@ export enum NavigationTab {
   Expenses = 'expenses',
   Invoices = 'invoices',
   Reports = 'reports',
+  AIAssistant = 'ai_assistant',
   Settings = 'settings'
 }

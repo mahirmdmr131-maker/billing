@@ -14,7 +14,8 @@ import Expenses from './components/Expenses';
 import Invoices from './components/Invoices';
 import Reports from './components/Reports';
 import Settings from './components/Settings';
-import { IconDashboard, IconCustomers, IconProducts, IconSales, IconFutureOrders, IconExpenses, IconInvoices, IconReports, IconSettings } from './components/Icons';
+import AIAssistant from './components/AIAssistant';
+import { IconDashboard, IconCustomers, IconProducts, IconSales, IconFutureOrders, IconExpenses, IconInvoices, IconReports, IconSettings, IconAIAssistant } from './components/Icons';
 import { uploadToDrive } from './utils/googleDrive';
 import { uploadToOneDrive } from './utils/oneDrive';
 
@@ -388,6 +389,7 @@ const App: React.FC = () => {
       case NavigationTab.Expenses: return isAdmin ? <Expenses data={data} updateData={handleUpdateData} /> : <AccessRestricted />;
       case NavigationTab.Invoices: return <Invoices data={data} updateData={handleUpdateData} initialSale={selectedInvoicingSale} onResetInitialSale={() => setSelectedInvoicingSale(null)} />;
       case NavigationTab.Reports: return isAdmin ? <Reports data={data} /> : <AccessRestricted />;
+      case NavigationTab.AIAssistant: return <AIAssistant data={data} />;
       case NavigationTab.Settings: return <Settings data={data} updateData={handleUpdateData} onManualSync={handleManualSync} onLogout={handleLogout} onSetLocalHandle={setLocalHandle} />;
       default: return <Dashboard data={data} updateData={handleUpdateData} />;
     }
@@ -409,6 +411,7 @@ const App: React.FC = () => {
           {isAdmin && <NavItem active={activeTab === NavigationTab.Expenses} onClick={() => setActiveTab(NavigationTab.Expenses)} icon={<IconExpenses />} label="Expenses" />}
           <NavItem active={activeTab === NavigationTab.Invoices} onClick={() => { setSelectedInvoicingSale(null); setActiveTab(NavigationTab.Invoices); }} icon={<IconInvoices />} label="Invoices" />
           {isAdmin && <NavItem active={activeTab === NavigationTab.Reports} onClick={() => setActiveTab(NavigationTab.Reports)} icon={<IconReports />} label="Reports" />}
+          <NavItem active={activeTab === NavigationTab.AIAssistant} onClick={() => setActiveTab(NavigationTab.AIAssistant)} icon={<IconAIAssistant />} label="AI Assistant" />
           <div className="pt-4 border-t border-white/10 mt-4">
             <NavItem active={activeTab === NavigationTab.Settings} onClick={() => setActiveTab(NavigationTab.Settings)} icon={<IconSettings />} label="Settings" />
           </div>
@@ -466,7 +469,7 @@ const App: React.FC = () => {
         <MobileNavItem active={activeTab === NavigationTab.Dashboard} onClick={() => setActiveTab(NavigationTab.Dashboard)} icon={<IconDashboard />} label="Dash" />
         <MobileNavItem active={activeTab === NavigationTab.Customers} onClick={() => setActiveTab(NavigationTab.Customers)} icon={<IconCustomers />} label="Clients" />
         <MobileNavItem active={activeTab === NavigationTab.Sales} onClick={() => setActiveTab(NavigationTab.Sales)} icon={<IconSales />} label="Bills" />
-        <MobileNavItem active={activeTab === NavigationTab.FutureOrders} onClick={() => setActiveTab(NavigationTab.FutureOrders)} icon={<IconFutureOrders />} label="Orders" />
+        <MobileNavItem active={activeTab === NavigationTab.AIAssistant} onClick={() => setActiveTab(NavigationTab.AIAssistant)} icon={<IconAIAssistant />} label="AI" />
         <MobileNavItem active={activeTab === NavigationTab.Settings} onClick={() => setActiveTab(NavigationTab.Settings)} icon={<IconSettings />} label="Set" />
       </nav>
 

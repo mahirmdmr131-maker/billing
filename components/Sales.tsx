@@ -13,6 +13,7 @@ type SortKey = 'date' | 'customerName' | 'totalAmount';
 type SortDirection = 'asc' | 'desc';
 type ViewMode = 'Active' | 'Mistakes';
 type PriceTier = 'Retail' | 'Wholesale';
+type PrintSize = 'A4' | 'Thermal80' | 'Thermal58';
 
 const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices }) => {
   const [showAddForm, setShowAddForm] = useState(false);
@@ -20,6 +21,7 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices })
   const [includePreviousBalance, setIncludePreviousBalance] = useState(false);
   const [selectedCustomerBalance, setSelectedCustomerBalance] = useState(0);
   const [isLargeLogo, setIsLargeLogo] = useState(false);
+  const [printSize, setPrintSize] = useState<PrintSize>('A4');
   const [sortKey, setSortKey] = useState<SortKey>('date');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [viewMode, setViewMode] = useState<ViewMode>('Active');
@@ -573,61 +575,77 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices })
 
       {lastSavedSale && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-xl animate-in fade-in duration-300">
-          <div className="bg-white w-full max-w-md rounded-[50px] shadow-2xl overflow-hidden p-12 text-center animate-in zoom-in-95 duration-200 no-print">
-            <div className="w-24 h-24 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-8 shadow-inner ring-8 ring-emerald-50">
-              <svg className="w-12 h-12" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={4} d="M5 13l4 4L19 7" /></svg>
+          <div className="bg-white w-full max-w-md rounded-[50px] shadow-2xl overflow-hidden p-10 text-center animate-in zoom-in-95 duration-200 no-print">
+            <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner ring-8 ring-emerald-50">
+              <svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={4} d="M5 13l4 4L19 7" /></svg>
             </div>
-            <h3 className="text-3xl font-black text-slate-800 uppercase tracking-tight mb-2">Invoice Saved!</h3>
-            <p className="text-slate-500 font-medium mb-8 text-sm">Invoice <b>{lastSavedSale.invoiceNumber}</b> processed.</p>
+            <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tight mb-2">Invoice Saved!</h3>
+            <p className="text-slate-500 font-medium mb-6 text-xs">Invoice <b>{lastSavedSale.invoiceNumber}</b> processed.</p>
             
-            <div className="mb-8 p-4 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-center space-x-3">
-              <input 
-                type="checkbox" 
-                id="modal-large-logo" 
-                checked={isLargeLogo} 
-                onChange={(e) => setIsLargeLogo(e.target.checked)}
-                className="w-5 h-5 text-indigo-600 rounded"
-              />
-              <label htmlFor="modal-large-logo" className="text-xs font-black uppercase text-slate-600 cursor-pointer">Use Large Logo</label>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase mb-2">Print Size</label>
+                <select 
+                  value={printSize} 
+                  onChange={(e) => setPrintSize(e.target.value as PrintSize)}
+                  className="w-full p-3 bg-slate-50 rounded-2xl outline-none font-bold text-sm border border-slate-100"
+                >
+                  <option value="A4">A4 Standard</option>
+                  <option value="Thermal80">80mm Thermal</option>
+                  <option value="Thermal58">58mm Mobile</option>
+                </select>
+              </div>
+              <div className="flex flex-col justify-end">
+                <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-center space-x-3 h-[46px]">
+                  <input 
+                    type="checkbox" 
+                    id="modal-large-logo" 
+                    checked={isLargeLogo} 
+                    onChange={(e) => setIsLargeLogo(e.target.checked)}
+                    className="w-4 h-4 text-indigo-600 rounded"
+                  />
+                  <label htmlFor="modal-large-logo" className="text-[10px] font-black uppercase text-slate-600 cursor-pointer">Large Logo</label>
+                </div>
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-4">
+            <div className="grid grid-cols-1 gap-3">
               <button 
                 onClick={handleModalPrint}
-                className="w-full py-5 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-3xl shadow-2xl transition-all active:scale-95 flex items-center justify-center space-x-3"
+                className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-2xl shadow-xl transition-all active:scale-95 flex items-center justify-center space-x-3 uppercase text-xs tracking-widest"
               >
-                <IconPrint className="w-6 h-6" />
-                <span className="text-lg">Print Invoice</span>
+                <IconPrint className="w-5 h-5" />
+                <span>Print Invoice</span>
               </button>
               <button 
                 onClick={handleModalClose}
-                className="w-full py-5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-black rounded-3xl transition-all active:scale-95 text-lg"
+                className="w-full py-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-black rounded-2xl transition-all active:scale-95 text-xs uppercase tracking-widest"
               >
                 Next New Bill
               </button>
             </div>
           </div>
           
-          <div className="print-only hidden print:block bg-white text-black p-4" style={{ fontFamily: 'monospace', width: '100%', minHeight: '100vh' }}>
+          <div className={`print-only hidden print:block bg-white text-black p-4 transition-all duration-300 mx-auto ${printSize === 'Thermal58' ? 'max-w-[240px] text-[10px]' : printSize === 'Thermal80' ? 'max-w-[320px] text-xs' : 'max-w-full text-sm'}`} style={{ fontFamily: printSize === 'A4' ? 'sans-serif' : 'monospace', width: '100%', minHeight: '100vh' }}>
              <div className="p-4 border-2 border-black">
                 <div className="text-center mb-6 pb-4 border-b-2 border-black">
                   {data.business?.logo && (
                     <img src={data.business.logo} alt="Logo" className={`${isLargeLogo ? 'w-48' : 'w-24'} mx-auto mb-4 object-contain`} />
                   )}
-                  <h1 className="text-2xl font-bold uppercase">{data.business?.name}</h1>
+                  <h1 className={`${printSize !== 'A4' ? 'text-lg' : 'text-2xl'} font-bold uppercase`}>{data.business?.name}</h1>
                   <p className="text-sm font-bold">{data.business?.tagline}</p>
                   <p className="text-xs">{data.business?.address}</p>
                   <p className="text-xs">Ph: {data.business?.phone}</p>
                   {data.business?.gst && <p className="text-xs font-bold">GSTIN: {data.business.gst}</p>}
                 </div>
-                <div className="flex justify-between mb-4 text-xs font-bold uppercase">
+                <div className="flex justify-between mb-4 text-[10px] font-bold uppercase">
                   <div>Customer: {lastSavedSale.customerName}</div>
-                  <div>Inv: {lastSavedSale.invoiceNumber} | Date: {lastSavedSale.date}</div>
+                  <div className="text-right">Inv: #{lastSavedSale.invoiceNumber.split('-')[1]}<br/>Date: {lastSavedSale.date}</div>
                 </div>
                 <table className="w-full text-[10px] text-left mb-6 border-collapse">
                   <thead className="border-y-2 border-black">
                     <tr>
-                      <th className="py-2">Item Detail (Batch/Exp)</th>
+                      <th className="py-2">Item Detail</th>
                       <th className="py-2 text-center">Qty</th>
                       <th className="py-2 text-center">Rate</th>
                       <th className="py-2 text-right">Total</th>
@@ -636,11 +654,11 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices })
                   <tbody className="border-b-2 border-black">
                     {lastSavedSale.items.map((it, i) => (
                       <tr key={i} className="border-b border-gray-100">
-                        <td className="py-2 font-bold">
+                        <td className="py-2 font-bold uppercase">
                           {it.productName}
                           {(it.batchNumber || it.expiryDate) && (
                             <div className="text-[8px] font-medium opacity-70">
-                              {it.batchNumber && `Batch: ${it.batchNumber}`} {it.expiryDate && `| Exp: ${it.expiryDate}`}
+                              {it.batchNumber && `B: ${it.batchNumber}`} {it.expiryDate && `| E: ${it.expiryDate}`}
                             </div>
                           )}
                         </td>
@@ -652,8 +670,8 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices })
                   </tbody>
                 </table>
                 <div className="text-right space-y-1">
-                   <p className="text-sm uppercase font-bold text-gray-600">Net Payable</p>
-                   <p className="text-2xl font-bold">₹{lastSavedSale.totalAmount.toLocaleString()}</p>
+                   <p className="text-[10px] uppercase font-bold text-gray-600">Net Payable</p>
+                   <p className={`${printSize !== 'A4' ? 'text-xl' : 'text-2xl'} font-black`}>₹{lastSavedSale.totalAmount.toLocaleString()}</p>
                    <p className="text-[10px] font-bold uppercase">Mode: {lastSavedSale.paymentMethod}</p>
                 </div>
                 <div className="mt-12 text-center text-[10px] font-bold italic border-t border-black pt-4">
@@ -663,6 +681,25 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices })
           </div>
         </div>
       )}
+
+      <style dangerouslySetInnerHTML={{ __html: `
+        @media print {
+          body * { visibility: hidden !important; }
+          .print-only, .print-only * { visibility: visible !important; }
+          .print-only { 
+            position: absolute !important; 
+            left: 0 !important; 
+            top: 0 !important; 
+            width: 100% !important; 
+            background: white !important; 
+            margin: 0 !important; 
+            padding: 0 !important; 
+            box-shadow: none !important; 
+            display: block !important;
+          }
+          @page { margin: 0; }
+        }
+      `}} />
     </div>
   );
 };
