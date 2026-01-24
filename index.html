@@ -1,21 +1,26 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="theme-color" content="#312e81">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="mobile-web-app-capable" content="yes">
     <title>A M Food Processing Manager</title>
     <link rel="manifest" href="manifest.json">
     <!-- Google Identity Services for Drive Backup -->
     <script src="https://accounts.google.com/gsi/client" async defer></script>
-    <!-- Note: For production offline use, tailwind should be bundled via PostCSS. 
-         Currently using CDN for simplicity in this environment, but tauri-build will work. -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <style>
-        body { font-family: 'Inter', sans-serif; -webkit-tap-highlight-color: transparent; }
+        body { 
+            font-family: 'Inter', sans-serif; 
+            -webkit-tap-highlight-color: transparent;
+            user-select: none; /* Recommended for ERP apps to prevent accidental text selection */
+            overscroll-behavior-y: contain; /* Prevents pull-to-refresh in webview */
+        }
         @media print {
             .no-print { display: none !important; }
             .print-only { display: block !important; }
@@ -26,6 +31,10 @@
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
         ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        /* Android Safe Area Insets for modern devices */
+        .safe-area-pt { padding-top: env(safe-area-inset-top); }
+        .safe-area-pb { padding-bottom: env(safe-area-inset-bottom); }
     </style>
 <script type="importmap">
 {
@@ -36,7 +45,9 @@
     "recharts": "https://esm.sh/recharts@^3.7.0",
     "vite": "https://esm.sh/vite@^7.3.1",
     "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2",
-    "@google/genai": "https://esm.sh/@google/genai@^1.38.0"
+    "@google/genai": "https://esm.sh/@google/genai@^1.38.0",
+    "@capacitor/core": "https://esm.sh/@capacitor/core@^6.0.0",
+    "@capacitor/cli": "https://esm.sh/@capacitor/cli@^8.0.1"
   }
 }
 </script>

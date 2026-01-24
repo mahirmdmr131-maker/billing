@@ -10,13 +10,19 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "mobile:init": "cap init",
+    "mobile:add": "cap add android",
+    "mobile:sync": "npm run build && cap sync",
+    "mobile:open": "cap open android"
   },
   "dependencies": {
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "recharts": "^2.15.0",
-    "@google/genai": "^1.38.0"
+    "@google/genai": "^1.38.0",
+    "@capacitor/core": "^6.0.0",
+    "@capacitor/android": "^6.0.0"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.1.0",
@@ -27,6 +33,7 @@
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.7.2",
-    "vite": "^6.0.3"
+    "vite": "^6.0.3",
+    "@capacitor/cli": "^6.0.0"
   }
 }
