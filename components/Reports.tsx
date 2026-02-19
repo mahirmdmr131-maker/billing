@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { AppData } from '../types';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, PieChart, Pie, Cell } from 'recharts';
 import { IconPrint } from './Icons';
@@ -7,6 +7,11 @@ import { IconPrint } from './Icons';
 interface ReportsProps {
   data: AppData;
 }
+
+const formatDate = (dateStr: string) => {
+  if (!dateStr) return '';
+  return dateStr.split('-').reverse().join('/');
+};
 
 const Reports: React.FC<ReportsProps> = ({ data }) => {
   const [reportRange, setReportRange] = useState('All Time');
@@ -18,6 +23,12 @@ const Reports: React.FC<ReportsProps> = ({ data }) => {
   const totalSales = data.sales.filter(s => !s.isMistake).reduce((sum, s) => sum + s.totalAmount, 0);
   const totalExpenses = data.expenses.reduce((sum, e) => sum + e.amount, 0);
   const profit = totalSales - totalExpenses;
+  const totalOutstanding = data.customers.reduce((sum, c) => sum + (c.pendingBalance || 0), 0);
+  
+  const inventoryValue = data.products.reduce((sum, p) => {
+    const stock = p.currentStock || 0;
+    return sum + (stock * p.defaultRate);
+  }, 0);
 
   // Monthly breakdown
   const monthlyData: any[] = [];
@@ -54,6 +65,8 @@ const Reports: React.FC<ReportsProps> = ({ data }) => {
       ['Total Sales', totalSales],
       ['Total Expenses', totalExpenses],
       ['Net Profit', profit],
+      ['Total Outstanding Dues', totalOutstanding],
+      ['Estimated Inventory Value', inventoryValue],
       [''],
       ['MONTHLY DATA'],
       ['Month', 'Sales', 'Expenses', 'Profit']
@@ -74,16 +87,21 @@ const Reports: React.FC<ReportsProps> = ({ data }) => {
 
   const handlePrintReport = () => {
     setIsPrinting(true);
+    // Short delay to ensure React renders the print-only div before dialog opens
     setTimeout(() => {
       window.print();
       setIsPrinting(false);
-    }, 150);
+    }, 300);
   };
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-col md:flex-row justify-between items-center bg-white p-6 rounded-3xl border border-slate-100 gap-4">
-        <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight">Business Intelligence</h3>
+      {/* Action Bar */}
+      <div className="flex flex-col md:flex-row justify-between items-center bg-white p-6 rounded-3xl border border-slate-100 gap-4 no-print shadow-sm">
+        <div>
+          <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight">Business Intelligence</h3>
+          <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Real-time enterprise analytics</p>
+        </div>
         <div className="flex items-center gap-2">
           <button
             onClick={exportToCSV}
@@ -148,22 +166,23 @@ const Reports: React.FC<ReportsProps> = ({ data }) => {
         </div>
       </div>
 
-      <div className="bg-indigo-900 rounded-[50px] p-10 text-white shadow-2xl relative overflow-hidden no-print">
-        <div className="absolute top-0 right-0 w-[400px] h-[400px] bg-indigo-500 rounded-full blur-[120px] opacity-20 -mr-[150px] -mt-[150px]"></div>
+      {/* KPI Summary Banner */}
+      <div className={`rounded-[50px] p-10 text-white shadow-2xl relative overflow-hidden no-print ${data.theme === 'dynamic' ? 'bg-dynamic-primary' : 'bg-indigo-900'}`}>
+        <div className="absolute top-0 right-0 w-[400px] h-[400px] bg-white/10 rounded-full blur-[120px] -mr-[150px] -mt-[150px]"></div>
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-8">
           <div className="space-y-2">
-            <h4 className="text-indigo-300 uppercase tracking-[0.4em] font-black text-[10px]">Net Enterprise Profit</h4>
+            <h4 className="text-white/60 uppercase tracking-[0.4em] font-black text-[10px]">Net Enterprise Profit</h4>
             <p className="text-5xl font-black tracking-tight">₹{profit.toLocaleString()}</p>
-            <p className="text-indigo-400 text-xs font-bold mt-1">Total operational yield after overheads</p>
+            <p className="text-white/40 text-xs font-bold mt-1">Yield after all documented overheads</p>
           </div>
           <div className="grid grid-cols-2 gap-10">
             <div>
               <p className="text-emerald-400 font-black text-3xl tracking-tight">₹{totalSales.toLocaleString()}</p>
-              <p className="text-indigo-300 text-[10px] uppercase font-black tracking-widest mt-1">Gross Revenue</p>
+              <p className="text-white/60 text-[10px] uppercase font-black tracking-widest mt-1">Gross Revenue</p>
             </div>
             <div>
               <p className="text-rose-400 font-black text-3xl tracking-tight">₹{totalExpenses.toLocaleString()}</p>
-              <p className="text-indigo-300 text-[10px] uppercase font-black tracking-widest mt-1">Operational Cost</p>
+              <p className="text-white/60 text-[10px] uppercase font-black tracking-widest mt-1">Operational Cost</p>
             </div>
           </div>
         </div>
@@ -174,90 +193,136 @@ const Reports: React.FC<ReportsProps> = ({ data }) => {
         <div className="print-only hidden print:block bg-white text-black p-10" style={{ fontFamily: 'sans-serif' }}>
            <div className="text-center mb-10 border-b-2 border-black pb-8">
               {data.business?.logo && <img src={data.business.logo} alt="Logo" className="w-32 mx-auto mb-4 object-contain" />}
-              <h1 className="text-4xl font-black uppercase">{data.business?.name}</h1>
-              <h2 className="text-xl font-bold uppercase tracking-[0.2em] mt-2">Executive Financial Statement</h2>
-              <p className="text-xs text-gray-500 mt-4 uppercase font-bold tracking-widest">Consolidated All-Time Performance Report</p>
+              <h1 className="text-4xl font-black uppercase tracking-tight">{data.business?.name}</h1>
+              <h2 className="text-xl font-bold uppercase tracking-[0.2em] mt-2">Executive Performance Audit</h2>
+              <p className="text-xs text-gray-500 mt-4 uppercase font-bold tracking-widest">Fiscal Summary Period: All Time (Generated {new Date().toLocaleDateString('en-GB')})</p>
            </div>
 
+           {/* Core Financial Block */}
            <div className="grid grid-cols-3 gap-6 mb-12 border-2 border-black p-6 rounded-lg">
               <div className="text-center">
-                 <p className="text-[10px] font-black text-gray-500 uppercase">Gross Revenue</p>
+                 <p className="text-[10px] font-black text-gray-500 uppercase">Gross Billing</p>
                  <p className="text-2xl font-black">₹{totalSales.toLocaleString()}</p>
               </div>
               <div className="text-center border-x-2 border-black">
-                 <p className="text-[10px] font-black text-gray-500 uppercase">Total Expenses</p>
+                 <p className="text-[10px] font-black text-gray-500 uppercase">Operational Expenses</p>
                  <p className="text-2xl font-black text-red-600">₹{totalExpenses.toLocaleString()}</p>
               </div>
               <div className="text-center">
-                 <p className="text-[10px] font-black text-gray-500 uppercase">Net Profit</p>
+                 <p className="text-[10px] font-black text-gray-500 uppercase">Net Liquidity</p>
                  <p className="text-2xl font-black text-emerald-600">₹{profit.toLocaleString()}</p>
               </div>
            </div>
 
+           {/* Secondary Financial Block */}
+           <div className="grid grid-cols-2 gap-6 mb-12">
+              <div className="border-2 border-black p-4 rounded-lg bg-gray-50">
+                 <p className="text-[10px] font-black text-gray-500 uppercase mb-1">Credit Risk (Outstanding Dues)</p>
+                 <p className="text-xl font-black">₹{totalOutstanding.toLocaleString()}</p>
+                 <p className="text-[8px] font-bold mt-1 italic text-gray-400">* Amount collectible from active accounts</p>
+              </div>
+              <div className="border-2 border-black p-4 rounded-lg bg-gray-50">
+                 <p className="text-[10px] font-black text-gray-500 uppercase mb-1">Estimated Inventory Value</p>
+                 <p className="text-xl font-black">₹{inventoryValue.toLocaleString()}</p>
+                 <p className="text-[8px] font-bold mt-1 italic text-gray-400">* Calculated at default retail rates</p>
+              </div>
+           </div>
+
+           {/* Table Section */}
            <div className="mb-12">
-              <h3 className="text-sm font-black uppercase border-b-2 border-black pb-2 mb-4">Monthly Financial Breakdown</h3>
+              <h3 className="text-sm font-black uppercase border-b-2 border-black pb-2 mb-4 tracking-widest">Monthly Growth Matrix</h3>
               <table className="w-full border-collapse">
                  <thead>
                     <tr className="bg-gray-100 border-b-2 border-black">
                        <th className="p-2 text-left text-[10px] uppercase font-black">Fiscal Month</th>
-                       <th className="p-2 text-right text-[10px] uppercase font-black">Sales (₹)</th>
-                       <th className="p-2 text-right text-[10px] uppercase font-black">Expenses (₹)</th>
-                       <th className="p-2 text-right text-[10px] uppercase font-black">Profit (₹)</th>
+                       <th className="p-2 text-right text-[10px] uppercase font-black">Inflow (₹)</th>
+                       <th className="p-2 text-right text-[10px] uppercase font-black">Outflow (₹)</th>
+                       <th className="p-2 text-right text-[10px] uppercase font-black">Margin (₹)</th>
                     </tr>
                  </thead>
                  <tbody>
-                    {sortedMonths.map((m, i) => (
+                    {sortedMonths.length > 0 ? sortedMonths.map((m, i) => (
                        <tr key={i} className="border-b border-gray-300">
                           <td className="p-2 text-xs font-bold">{m.month}</td>
                           <td className="p-2 text-xs text-right">₹{m.sales.toLocaleString()}</td>
                           <td className="p-2 text-xs text-right">₹{m.expenses.toLocaleString()}</td>
                           <td className="p-2 text-xs text-right font-bold text-indigo-700">₹{(m.sales - m.expenses).toLocaleString()}</td>
                        </tr>
-                    ))}
+                    )) : (
+                       <tr><td colSpan={4} className="p-10 text-center text-xs font-bold text-gray-400">NO FINANCIAL HISTORY RECORDED</td></tr>
+                    )}
                  </tbody>
               </table>
            </div>
 
-           <div>
-              <h3 className="text-sm font-black uppercase border-b-2 border-black pb-2 mb-4">Expense Portfolio Distribution</h3>
+           {/* Categories Block */}
+           <div className="mb-12">
+              <h3 className="text-sm font-black uppercase border-b-2 border-black pb-2 mb-4 tracking-widest">Expense Portfolio Analysis</h3>
               <div className="grid grid-cols-2 gap-8 items-start">
                  <table className="w-full border-collapse">
                     <thead>
                        <tr className="bg-gray-100 border-b-2 border-black">
-                          <th className="p-2 text-left text-[10px] uppercase font-black">Category</th>
-                          <th className="p-2 text-right text-[10px] uppercase font-black">Amount Spent</th>
-                          <th className="p-2 text-right text-[10px] uppercase font-black">Share (%)</th>
+                          <th className="p-2 text-left text-[10px] uppercase font-black">Expense Tier</th>
+                          <th className="p-2 text-right text-[10px] uppercase font-black">Consolidated</th>
+                          <th className="p-2 text-right text-[10px] uppercase font-black">Share</th>
                        </tr>
                     </thead>
                     <tbody>
                        {expenseCategories.map((c, i) => (
                           <tr key={i} className="border-b border-gray-200">
-                             <td className="p-2 text-xs font-bold">{c.name}</td>
-                             <td className="p-2 text-xs text-right">₹{c.value.toLocaleString()}</td>
-                             <td className="p-2 text-xs text-right font-medium text-gray-500">{((c.value / totalExpenses) * 100).toFixed(1)}%</td>
+                             <td className="p-2 text-xs font-bold uppercase">{c.name}</td>
+                             <td className="p-2 text-xs text-right font-medium">₹{c.value.toLocaleString()}</td>
+                             <td className="p-2 text-xs text-right font-black text-gray-500">{((c.value / totalExpenses) * 100).toFixed(1)}%</td>
                           </tr>
                        ))}
                     </tbody>
                  </table>
-                 <div className="p-6 border-2 border-dashed border-gray-300 rounded-xl h-full flex flex-col items-center justify-center">
-                    <p className="text-[10px] font-black uppercase text-gray-400 mb-2">Internal Verification</p>
-                    <p className="text-xs font-bold text-center leading-relaxed">Financial data audited for period ending {new Date().toLocaleDateString()}</p>
+                 <div className="p-6 border-2 border-dashed border-gray-300 rounded-xl h-full flex flex-col items-center justify-center text-center">
+                    <p className="text-[10px] font-black uppercase text-gray-400 mb-2">Audit Status</p>
+                    <p className="text-[10px] font-bold leading-relaxed text-gray-600">This report constitutes a preliminary financial overview based on internal records for <b>A M Food Processing</b>. Data integrity is contingent upon complete entry of all daily transactions.</p>
                  </div>
               </div>
            </div>
 
+           {/* Signature Footer */}
            <div className="mt-24 pt-10 border-t border-black flex justify-between px-10">
               <div className="text-center">
-                 <div className="w-40 border-b border-black mb-2"></div>
-                 <p className="text-[10px] font-black uppercase tracking-widest">Accountant / Auditor</p>
+                 <div className="w-48 border-b border-black mb-2"></div>
+                 <p className="text-[9px] font-black uppercase tracking-widest">Internal Auditor / Accountant</p>
               </div>
               <div className="text-center">
-                 <div className="w-40 border-b border-black mb-2"></div>
-                 <p className="text-[10px] font-black uppercase tracking-widest">Proprietor / MD</p>
+                 <div className="w-48 border-b border-black mb-2"></div>
+                 <p className="text-[9px] font-black uppercase tracking-widest">Authorized Signatory / MD</p>
               </div>
            </div>
         </div>
       )}
+
+      {/* Print isolation style tag */}
+      <style dangerouslySetInnerHTML={{ __html: `
+        @media print {
+          body * { visibility: hidden !important; }
+          .print-only, .print-only * { visibility: visible !important; }
+          .print-only { 
+            position: absolute !important; 
+            left: 0 !important; 
+            top: 0 !important; 
+            width: 100% !important; 
+            background: white !important; 
+            margin: 0 !important; 
+            padding: 0 !important; 
+            box-shadow: none !important; 
+            display: block !important;
+            z-index: 9999 !important;
+          }
+          @page { 
+            margin: 1cm; 
+            size: auto;
+          }
+          /* Ensure charts are hidden during print if they don't look good */
+          .recharts-responsive-container { display: none !important; }
+        }
+      `}} />
     </div>
   );
 };

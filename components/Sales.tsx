@@ -1,704 +1,486 @@
-
-import React, { useState, useMemo } from 'react';
-import { AppData, Sale, SaleItem, Customer, Product, PaymentMethod } from '../types';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { AppData, Sale, SaleItem, PaymentMethod, Customer, Product } from '../types';
 import { IconAdd, IconPrint } from './Icons';
 
 interface SalesProps {
   data: AppData;
   updateData: (updater: (prev: AppData) => AppData) => void;
   onNavigateToInvoices: () => void;
+  preSelectedCustomerId?: string | null;
+  onClearPreSelect?: () => void;
 }
 
-type SortKey = 'date' | 'customerName' | 'totalAmount';
-type SortDirection = 'asc' | 'desc';
-type ViewMode = 'Active' | 'Mistakes';
-type PriceTier = 'Retail' | 'Wholesale';
 type PrintSize = 'A4' | 'Thermal80' | 'Thermal58';
+type PriceTier = 'Retail' | 'Wholesale';
 
-const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices }) => {
+const formatDate = (dateStr: string) => {
+  if (!dateStr) return '';
+  return dateStr.split('-').reverse().join('/');
+};
+
+const applyTemplate = (text: string, sale: Sale) => {
+  if (!text) return '';
+  return text
+    .replace(/{{inv_number}}/g, sale.invoiceNumber)
+    .replace(/{{cust_name}}/g, sale.customerName)
+    .replace(/{{total_due}}/g, `₹${sale.totalAmount.toLocaleString()}`)
+    .replace(/{{date}}/g, formatDate(sale.date));
+};
+
+const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices, preSelectedCustomerId, onClearPreSelect }) => {
   const [showAddForm, setShowAddForm] = useState(false);
   const [lastSavedSale, setLastSavedSale] = useState<Sale | null>(null);
-  const [includePreviousBalance, setIncludePreviousBalance] = useState(false);
-  const [selectedCustomerBalance, setSelectedCustomerBalance] = useState(0);
-  const [isLargeLogo, setIsLargeLogo] = useState(false);
-  const [printSize, setPrintSize] = useState<PrintSize>('A4');
-  const [sortKey, setSortKey] = useState<SortKey>('date');
-  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
-  const [viewMode, setViewMode] = useState<ViewMode>('Active');
+  const [printSize, setPrintSize] = useState<PrintSize>('Thermal80');
+  const [includeOwnerCopy, setIncludeOwnerCopy] = useState(false);
+  const [includeDues, setIncludeDues] = useState(false);
   
+  const customerInputRef = useRef<HTMLInputElement>(null);
+
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [showCustomerList, setShowCustomerList] = useState(false);
+  const [isCustomerForced, setIsCustomerForced] = useState(false);
+  const [customerLazyLimit, setCustomerLazyLimit] = useState(50);
+
+  const [activeProductIdx, setActiveProductIdx] = useState<number | null>(null);
+  const [productSearch, setProductSearch] = useState('');
+  const [isProductForced, setIsProductForced] = useState(false);
+  const [productLazyLimit, setProductLazyLimit] = useState(50);
+
   const [formData, setFormData] = useState({
     customerId: '',
     customerName: '',
     date: new Date().toISOString().split('T')[0],
-    dueDate: new Date().toISOString().split('T')[0],
-    category: 'General',
     paymentMethod: 'Cash' as PaymentMethod,
-    selectedUpiQrId: '',
     cashPaid: '',
     tier: 'Retail' as PriceTier,
-    items: [{ productName: '', quantity: 1, unit: 'kg', rate: 0, batchNumber: '', expiryDate: '', showAdvanced: false }] as (Partial<SaleItem> & { showAdvanced: boolean })[]
+    items: [{ productName: '', quantity: 1, unit: 'kg', rate: 0 }] as Partial<SaleItem>[]
   });
 
-  const isAdmin = data.currentUser?.role === 'admin';
+  useEffect(() => {
+    if (preSelectedCustomerId) {
+      const customer = data.customers.find(c => c.id === preSelectedCustomerId);
+      if (customer) {
+        setFormData(prev => ({ ...prev, customerId: customer.id, customerName: customer.name }));
+        setCustomerSearch(customer.name);
+        setShowAddForm(true);
+        onClearPreSelect?.();
+      }
+    }
+  }, [preSelectedCustomerId, data.customers, onClearPreSelect]);
+
+  const filteredCustomers = useMemo(() => {
+    const list = [...data.customers].sort((a, b) => a.name.localeCompare(b.name));
+    if (isCustomerForced) return list.slice(0, customerLazyLimit);
+    if (!customerSearch) return list.slice(0, 5); 
+    return list.filter(c => c.name.toLowerCase().includes(customerSearch.toLowerCase()) || c.phone.includes(customerSearch)).slice(0, customerLazyLimit);
+  }, [data.customers, customerSearch, isCustomerForced, customerLazyLimit]);
+
+  const filteredProducts = useMemo(() => {
+    const list = [...data.products].sort((a, b) => a.name.localeCompare(b.name));
+    if (isProductForced) return list.slice(0, productLazyLimit);
+    if (!productSearch) return list.slice(0, 5);
+    return list.filter(p => p.name.toLowerCase().includes(productSearch.toLowerCase()) || (p.code && p.code.toLowerCase().includes(productSearch.toLowerCase()))).slice(0, productLazyLimit);
+  }, [data.products, productSearch, isProductForced, productLazyLimit]);
+
   const UNITS = ['kg', 'gram', 'no.', 'pkt', 'box', 'ltr', 'ml', 'bag', 'tin'];
 
-  const currentTotal = formData.items.reduce((sum, i) => 
-    sum + calculateItemTotal(Number(i.quantity || 0), Number(i.rate || 0), i.unit || 'kg'), 0
-  );
-
-  const cashPaidVal = Number(formData.cashPaid) || 0;
-  const balanceToReturn = Math.max(0, cashPaidVal - currentTotal);
-
-  function calculateItemTotal(qty: number, rate: number, unit: string) {
+  const calculateItemTotal = (qty: number, rate: number, unit: string) => {
     const q = Number(qty) || 0;
     const r = Number(rate) || 0;
-    if (unit === 'gram' || unit === 'ml') {
-      return (q / 1000) * r;
-    }
+    if (unit === 'gram' || unit === 'ml') return (q / 1000) * r;
     return q * r;
-  }
+  };
+
+  const currentTotal = formData.items.reduce((sum, i) => sum + calculateItemTotal(Number(i.quantity || 0), Number(i.rate || 0), i.unit || 'kg'), 0);
 
   const resetForm = () => {
-    setFormData({
-      customerId: '',
-      customerName: '',
-      date: new Date().toISOString().split('T')[0],
-      dueDate: new Date().toISOString().split('T')[0],
-      category: 'General',
-      paymentMethod: 'Cash',
-      selectedUpiQrId: '',
-      cashPaid: '',
-      tier: 'Retail',
-      items: [{ productName: '', quantity: 1, unit: 'kg', rate: 0, batchNumber: '', expiryDate: '', showAdvanced: false }]
-    });
-    setIncludePreviousBalance(false);
-    setSelectedCustomerBalance(0);
-  };
-
-  const handleAddItem = () => setFormData(prev => ({ 
-    ...prev, 
-    items: [...prev.items, { productName: '', quantity: 1, unit: 'kg', rate: 0, batchNumber: '', expiryDate: '', showAdvanced: false }] 
-  }));
-  
-  const handleRemoveItem = (index: number) => setFormData(prev => ({ ...prev, items: prev.items.filter((_, i) => i !== index) }));
-
-  const updateItem = (index: number, field: string, value: any) => {
-    const newItems = [...formData.items];
-    if (field === 'productName' && typeof value === 'string' && value.includes('__PID:')) {
-      const prodId = value.split('__PID:')[1];
-      const prod = data.products.find(p => p.id === prodId);
-      if (prod) {
-        newItems[index] = { 
-          ...newItems[index], 
-          productName: prod.name, 
-          unit: prod.unit,
-          rate: formData.tier === 'Wholesale' ? (prod.wholesaleRate || prod.defaultRate) : prod.defaultRate
-        };
-      }
-    } else {
-      newItems[index] = { ...newItems[index], [field]: value };
-    }
-    setFormData(prev => ({ ...prev, items: newItems }));
-  };
-
-  const changeTier = (tier: PriceTier) => {
-    const updatedItems = formData.items.map(item => {
-      if (!item.productName) return item;
-      const prod = data.products.find(p => p.name.toLowerCase() === item.productName?.toLowerCase());
-      if (prod) {
-        return {
-          ...item,
-          rate: tier === 'Wholesale' ? (prod.wholesaleRate || prod.defaultRate) : prod.defaultRate
-        };
-      }
-      return item;
-    });
-    setFormData(prev => ({ ...prev, tier, items: updatedItems }));
-  };
-
-  const handleCustomerChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const customer = data.customers.find(c => c.id === e.target.value);
-    if (customer) {
-      setFormData(prev => ({ ...prev, customerId: customer.id, customerName: customer.name }));
-      setSelectedCustomerBalance(customer.pendingBalance || 0);
-    } else {
-      setFormData(prev => ({ ...prev, customerId: '', customerName: '' }));
-      setSelectedCustomerBalance(0);
-    }
+    setFormData({ customerId: '', customerName: '', date: new Date().toISOString().split('T')[0], paymentMethod: 'Cash', cashPaid: '', tier: 'Retail', items: [{ productName: '', quantity: 1, unit: 'kg', rate: 0 }] });
+    setCustomerSearch('');
+    setCustomerLazyLimit(50);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
-    const finalItems: SaleItem[] = formData.items.map(item => {
-      const qty = Number(item.quantity) || 0;
-      const rate = Number(item.rate) || 0;
-      const unit = item.unit || 'kg';
-      const total = calculateItemTotal(qty, rate, unit);
-      
-      return {
-        id: crypto.randomUUID(),
-        productName: item.productName || 'General Item',
-        quantity: qty,
-        unit: unit,
-        rate: rate,
-        total: total,
-        batchNumber: item.batchNumber,
-        expiryDate: item.expiryDate
-      };
-    });
-    
-    const currentSaleAmount = finalItems.reduce((sum, i) => sum + i.total, 0);
-    let finalPaymentMethod = formData.paymentMethod;
-    if (Number(formData.cashPaid) === 0 && finalPaymentMethod === 'Cash') {
-      finalPaymentMethod = 'Pending';
-    }
+    const finalItems: SaleItem[] = formData.items.map(item => ({
+      id: crypto.randomUUID(),
+      productName: item.productName || 'Item',
+      quantity: Number(item.quantity) || 0,
+      unit: item.unit || 'kg',
+      rate: Number(item.rate) || 0,
+      total: calculateItemTotal(Number(item.quantity), Number(item.rate), item.unit || 'kg')
+    }));
 
     const newSale: Sale = {
       id: crypto.randomUUID(),
-      invoiceNumber: `INV-${String(data.sales.length + data.recycleBin.sales.length + 1).padStart(5, '0')}`,
+      invoiceNumber: `INV-${String(data.sales.length + 1).padStart(5, '0')}`,
       date: formData.date,
-      dueDate: finalPaymentMethod === 'Pending' ? formData.dueDate : undefined,
       customerId: formData.customerId || undefined,
-      customerName: formData.customerName || 'Walk-in Customer',
+      customerName: formData.customerName || customerSearch || 'Walk-in',
       items: finalItems,
-      totalAmount: currentSaleAmount,
-      category: formData.category,
+      totalAmount: finalItems.reduce((sum, i) => sum + i.total, 0),
+      category: 'General',
       isMistake: false,
       createdBy: data.currentUser?.id || 'System',
-      paymentMethod: finalPaymentMethod,
-      selectedUpiQrId: formData.paymentMethod === 'UPI' ? formData.selectedUpiQrId : undefined,
-      includePreviousBalance: includePreviousBalance
+      paymentMethod: (Number(formData.cashPaid) === 0 && formData.paymentMethod === 'Cash') ? 'Pending' : formData.paymentMethod,
     };
 
-    updateData(prev => {
-      const newProductsList = [...prev.products];
-      finalItems.forEach(item => {
-        const productIndex = newProductsList.findIndex(p => p.name.toLowerCase() === item.productName.toLowerCase());
-        if (productIndex !== -1) {
-          if (newProductsList[productIndex].currentStock !== undefined) {
-            newProductsList[productIndex] = {
-              ...newProductsList[productIndex],
-              currentStock: Math.max(0, (newProductsList[productIndex].currentStock || 0) - item.quantity)
-            };
-          }
-        }
-      });
-
-      let updatedCustomers = [...prev.customers];
-      if (finalPaymentMethod === 'Pending' && formData.customerId) {
-        updatedCustomers = updatedCustomers.map(c => 
-          c.id === formData.customerId ? { ...c, pendingBalance: (c.pendingBalance || 0) + currentSaleAmount } : c
-        );
-      }
-
-      return {
-        ...prev,
-        sales: [newSale, ...prev.sales],
-        products: newProductsList,
-        customers: updatedCustomers
-      };
-    });
+    updateData(prev => ({
+      ...prev,
+      sales: [newSale, ...prev.sales],
+      customers: prev.customers.map(c => (c.id === newSale.customerId && newSale.paymentMethod === 'Pending') ? { ...c, pendingBalance: c.pendingBalance + newSale.totalAmount } : c)
+    }));
 
     setLastSavedSale(newSale);
     setShowAddForm(false);
   };
 
-  const flagAsMistake = (saleId: string) => {
-    if (!confirm('Flag this bill as a mistake? This will revert inventory and customer balance changes.')) return;
-
-    updateData(prev => {
-      const sale = prev.sales.find(s => s.id === saleId);
-      if (!sale) return prev;
-
-      const updatedProducts = prev.products.map(p => {
-        const saleItem = sale.items.find(si => si.productName.toLowerCase() === p.name.toLowerCase());
-        if (saleItem && p.currentStock !== undefined) {
-          return { ...p, currentStock: p.currentStock + saleItem.quantity };
-        }
-        return p;
-      });
-
-      const updatedCustomers = prev.customers.map(c => {
-        if (sale.customerId === c.id && sale.paymentMethod === 'Pending') {
-          return { ...c, pendingBalance: Math.max(0, (c.pendingBalance || 0) - sale.totalAmount) };
-        }
-        return c;
-      });
-
-      const updatedSales = prev.sales.map(s => s.id === saleId ? { ...s, isMistake: true } : s);
-
-      return {
-        ...prev,
-        sales: updatedSales,
-        products: updatedProducts,
-        customers: updatedCustomers
-      };
-    });
+  const selectCustomer = (c: Customer) => {
+    setFormData(prev => ({ ...prev, customerId: c.id, customerName: c.name }));
+    setCustomerSearch(c.name);
+    setShowCustomerList(false);
+    setIsCustomerForced(false);
   };
 
-  // Improved Sorting Logic
-  const sortedSales = useMemo(() => {
-    const filtered = data.sales.filter(s => viewMode === 'Active' ? !s.isMistake : s.isMistake);
-    return [...filtered].sort((a, b) => {
-      let comparison = 0;
-      switch (sortKey) {
-        case 'date': 
-          comparison = a.date.localeCompare(b.date); 
-          break;
-        case 'customerName': 
-          comparison = a.customerName.localeCompare(b.customerName, undefined, { sensitivity: 'base' }); 
-          break;
-        case 'totalAmount': 
-          comparison = a.totalAmount - b.totalAmount; 
-          break;
-      }
-      return sortDirection === 'asc' ? comparison : -comparison;
-    });
-  }, [data.sales, sortKey, sortDirection, viewMode]);
+  const selectProduct = (p: Product, index: number) => {
+    const newItems = [...formData.items];
+    const rate = formData.tier === 'Wholesale' ? (p.wholesaleRate || p.defaultRate) : p.defaultRate;
+    newItems[index] = { ...newItems[index], productName: p.name, unit: p.unit, rate };
+    setFormData(prev => ({ ...prev, items: newItems }));
+    setActiveProductIdx(null);
+    setIsProductForced(false);
+    setProductSearch('');
+  };
 
-  const toggleSort = (key: SortKey) => {
-    if (sortKey === key) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortKey(key);
-      setSortDirection('asc');
+  const handleLazyScroll = (e: React.UIEvent<HTMLDivElement>, type: 'customer' | 'product') => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget;
+    if (scrollHeight - scrollTop <= clientHeight + 50) {
+      if (type === 'customer') setCustomerLazyLimit(prev => prev + 50);
+      else setProductLazyLimit(prev => prev + 50);
     }
   };
 
-  const handleModalClose = () => {
-    setLastSavedSale(null);
-    resetForm();
-    setShowAddForm(true); 
-  };
+  const isThermal = printSize === 'Thermal80' || printSize === 'Thermal58';
+  const customerForDues = lastSavedSale?.customerId ? data.customers.find(c => c.id === lastSavedSale.customerId) : null;
+  const currentTotalDues = customerForDues?.pendingBalance || 0;
+  const currentTime = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
-  const handleModalPrint = () => {
-    window.print();
-  };
+  const paperWidth = printSize === 'Thermal58' ? '58mm' : printSize === 'Thermal80' ? '80mm' : '210mm';
+  const template = data.templateSettings;
 
-  const selectedQr = data.upiQrs?.find(q => q.id === formData.selectedUpiQrId);
-
-  const SortIcon = ({ field }: { field: SortKey }) => {
-    if (sortKey !== field) return <svg className="w-3 h-3 ml-1 opacity-20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M8 9l4-4 4 4m0 6l-4 4-4-4" /></svg>;
-    return sortDirection === 'asc' ? 
-      <svg className="w-3 h-3 ml-1 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 15l7-7 7 7" /></svg> : 
-      <svg className="w-3 h-3 ml-1 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 9l-7 7-7-7" /></svg>;
-  };
-
-  const SortButton = ({ label, field }: { label: string, field: SortKey }) => (
-    <button 
-      onClick={() => toggleSort(field)}
-      className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center space-x-2 border shadow-sm ${
-        sortKey === field 
-          ? 'bg-indigo-600 text-white border-indigo-700' 
-          : 'bg-white text-slate-500 border-slate-200 hover:border-indigo-300 hover:text-indigo-600'
-      }`}
-    >
-      <span>{label}</span>
-      <span className={`transition-transform duration-200 ${sortKey === field && sortDirection === 'desc' ? 'rotate-180' : ''}`}>
-        {sortKey === field ? (
-          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 15l7-7 7 7" /></svg>
-        ) : (
-          <svg className="w-3 h-3 opacity-20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M8 9l4-4 4 4m0 6l-4 4-4-4" /></svg>
-        )}
-      </span>
-    </button>
-  );
+  // PRINT SCALING LOGIC
+  const scalingFactor = printSize === 'Thermal58' ? 0.75 : printSize === 'Thermal80' ? 0.9 : 1.0;
+  const baseFontSize = template.applyToPrinting ? template.fontSize : 12;
+  const effectiveFontSize = baseFontSize * scalingFactor;
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col md:flex-row justify-between items-center gap-4">
-        <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight">Rapid Billing</h3>
-        <div className="flex items-center space-x-2">
-          <div className="bg-slate-100 p-1 rounded-2xl flex items-center shadow-inner mr-2">
-             {(['Active', 'Mistakes'] as ViewMode[]).map(m => (
-               <button 
-                key={m}
-                onClick={() => setViewMode(m)}
-                className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${viewMode === m ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
-               >
-                 {m === 'Active' ? 'Live Queue' : 'Flagged Logs'}
-               </button>
-             ))}
-          </div>
-          <button onClick={() => { resetForm(); setShowAddForm(true); }} className="flex items-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-2xl font-bold shadow-lg transition-all active:scale-95">
-            <IconAdd /><span>Start New Bill</span>
-          </button>
-        </div>
+    <div className="space-y-4">
+      {/* Dynamic Page Hinting for Printers */}
+      <style dangerouslySetInnerHTML={{ __html: `
+        @media print {
+          @page { 
+            size: ${paperWidth} auto; 
+            margin: 0 !important; 
+          }
+          #print-engine {
+            width: ${paperWidth} !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+          }
+        }
+      `}} />
+
+      <div className="no-print flex justify-between items-center bg-white px-6 py-4 rounded-2xl border border-slate-200 shadow-sm">
+        <h3 className="text-lg font-black text-slate-800 uppercase tracking-tight">Enterprise Billing</h3>
+        <button onClick={() => { resetForm(); setShowAddForm(true); }} className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2 rounded-xl font-bold shadow-md transition-all active:scale-95 flex items-center space-x-2">
+          <IconAdd className="w-4 h-4" /><span>New Invoice</span>
+        </button>
       </div>
 
       {showAddForm && (
-        <div className="bg-white p-8 rounded-3xl shadow-xl border border-slate-200 animate-in fade-in zoom-in duration-300">
-          <form onSubmit={handleSubmit} className="space-y-8">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 border-b border-slate-100 pb-8">
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Customer Profile</label>
-                  <select className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none bg-slate-50 font-medium" value={formData.customerId} onChange={handleCustomerChange}>
-                    <option value="">Walk-in Customer</option>
-                    {data.customers.map(c => <option key={c.id} value={c.id}>{c.name} ({c.phone})</option>)}
-                  </select>
-                  {!formData.customerId && (
-                    <input type="text" className="w-full mt-3 px-4 py-3 border border-slate-200 rounded-xl outline-none font-medium" placeholder="Customer Name..." value={formData.customerName} onChange={e => setFormData({ ...formData, customerName: e.target.value })} />
-                  )}
+        <div className="bg-white rounded-[32px] shadow-2xl border border-slate-200 animate-in fade-in zoom-in duration-300 no-print flex flex-col max-h-[85vh]">
+          <form onSubmit={handleSubmit} className="flex flex-col h-full">
+            <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4 border-b border-slate-100 bg-slate-50/30 rounded-t-[32px]">
+              <div className="relative">
+                <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Customer</label>
+                <div className="flex border border-slate-200 rounded-xl overflow-hidden bg-white focus-within:ring-2 focus-within:ring-indigo-500">
+                  <input ref={customerInputRef} type="text" className="flex-1 px-3 py-2 outline-none font-bold uppercase text-sm" placeholder="Search or Walk-in..." value={customerSearch} onChange={e => { setCustomerSearch(e.target.value); setShowCustomerList(true); setIsCustomerForced(false); }} onFocus={() => setShowCustomerList(true)} />
+                  <button type="button" onClick={() => { setShowCustomerList(!showCustomerList); setIsCustomerForced(!isCustomerForced); }} className="px-2 border-l border-slate-200 bg-slate-50 text-slate-400"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 9l-7 7-7-7" /></svg></button>
                 </div>
-                {formData.customerId && (
-                  <div className="p-3 bg-amber-50 rounded-xl border border-amber-100 flex justify-between items-center">
-                    <div>
-                      <p className="text-[10px] font-black text-amber-600 uppercase">Existing Pending</p>
-                      <p className="text-lg font-black text-amber-800">₹{selectedCustomerBalance.toLocaleString()}</p>
-                    </div>
-                    <label className="flex items-center space-x-2 cursor-pointer">
-                      <input type="checkbox" className="w-4 h-4 text-indigo-600 rounded" checked={includePreviousBalance} onChange={e => setIncludePreviousBalance(e.target.checked)} />
-                      <span className="text-[10px] font-bold text-amber-700 uppercase">Show Dues</span>
-                    </label>
+                {showCustomerList && (
+                  <div className="absolute z-[100] left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-2xl overflow-hidden max-h-60 overflow-y-auto" onScroll={e => handleLazyScroll(e, 'customer')}>
+                     {filteredCustomers.map(c => (
+                       <button key={c.id} type="button" onClick={() => selectCustomer(c)} className="w-full text-left px-4 py-2 hover:bg-indigo-50 border-b border-slate-50 flex justify-between items-center">
+                          <div><p className="font-black text-slate-800 text-xs uppercase">{c.name}</p><p className="text-[9px] text-slate-400 font-bold">{c.phone}</p></div>
+                          <span className="text-[9px] font-black text-indigo-600">₹{c.pendingBalance.toLocaleString()}</span>
+                       </button>
+                     ))}
                   </div>
                 )}
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
-                <div>
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Billing Date</label>
-                  <input type="date" required className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none bg-slate-50 font-medium" value={formData.date} onChange={e => setFormData({ ...formData, date: e.target.value })} />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Price Tier</label>
-                  <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200">
-                    {(['Retail', 'Wholesale'] as PriceTier[]).map(t => (
-                      <button 
-                        key={t}
-                        type="button"
-                        onClick={() => changeTier(t)}
-                        className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${formData.tier === t ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}
-                      >
-                        {t}
-                      </button>
-                    ))}
-                  </div>
+              <div>
+                <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Billing Date</label>
+                <input type="date" required className="w-full px-3 py-2 border border-slate-200 rounded-xl outline-none font-bold text-sm" value={formData.date} onChange={e => setFormData({ ...formData, date: e.target.value })} />
+              </div>
+              <div>
+                <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Pricing Tier</label>
+                <div className="flex bg-slate-100 p-1 rounded-xl">
+                  {['Retail', 'Wholesale'].map(t => (
+                    <button key={t} type="button" onClick={() => setFormData({...formData, tier: t as PriceTier})} className={`flex-1 py-1 rounded-lg text-[9px] font-black uppercase transition-all ${formData.tier === t ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400'}`}>{t}</button>
+                  ))}
                 </div>
               </div>
             </div>
 
-            <div className="space-y-4">
-              <div className="flex justify-between items-center px-2">
-                <h4 className="font-black text-slate-400 uppercase text-[10px] tracking-[0.2em]">Itemized Billing</h4>
-                <button type="button" onClick={handleAddItem} className="text-indigo-600 font-bold text-xs hover:underline tracking-tight">+ New Line Item</button>
+            <div className="flex-1 overflow-y-auto p-4 pb-40 space-y-2 no-scrollbar relative">
+              <div className="hidden md:grid grid-cols-12 gap-3 px-4 mb-1 text-[9px] font-black text-slate-400 uppercase tracking-[0.2em]">
+                <div className="col-span-5">Product Description</div>
+                <div className="col-span-2">Unit</div>
+                <div className="col-span-1">Qty</div>
+                <div className="col-span-2 text-right">Rate</div>
+                <div className="col-span-2 text-right">Total</div>
               </div>
               
-              {formData.items.map((item, index) => {
-                const rowTotal = calculateItemTotal(Number(item.quantity || 0), Number(item.rate || 0), item.unit || 'kg');
-
-                return (
-                  <div key={index} className="bg-slate-50 p-5 rounded-2xl border border-slate-100 relative group transition-all hover:bg-white hover:shadow-md">
-                    <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
-                      <div className="md:col-span-4">
-                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Item Selection</label>
-                        <select className="w-full text-xs p-2 border border-slate-200 rounded-lg bg-white mb-2" onChange={e => updateItem(index, 'productName', e.target.value)} value="">
-                          <option value="">Catalog...</option>
-                          {data.products.map(p => <option key={p.id} value={`__PID:${p.id}`}>{p.name}</option>)}
-                        </select>
-                        <input type="text" placeholder="Product name..." required className="w-full px-4 py-2 border border-slate-200 rounded-xl bg-white font-medium text-sm" value={item.productName} onChange={e => updateItem(index, 'productName', e.target.value)} />
-                      </div>
-                      <div className="md:col-span-2">
-                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Unit</label>
-                        <select className="w-full px-4 py-2 border border-slate-200 rounded-xl bg-white font-medium text-sm" value={item.unit} onChange={e => updateItem(index, 'unit', e.target.value)}>
-                          {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
-                        </select>
-                      </div>
-                      <div className="md:col-span-2">
-                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Qty</label>
-                        <input type="number" step="any" required className="w-full px-4 py-2 border border-slate-200 rounded-xl bg-white font-medium text-sm" value={item.quantity} onChange={e => updateItem(index, 'quantity', e.target.value)} />
-                      </div>
-                      <div className="md:col-span-2">
-                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Rate (₹)</label>
-                        <input type="number" step="any" required className="w-full px-4 py-2 border border-slate-200 rounded-xl bg-white font-medium text-sm" value={item.rate} onChange={e => updateItem(index, 'rate', e.target.value)} />
-                      </div>
-                      <div className="md:col-span-2 flex items-center justify-between gap-2">
-                        <div className="text-right flex-1">
-                          <p className="text-[8px] font-black text-slate-400 uppercase">Subtotal</p>
-                          <p className="font-black text-slate-800 text-sm whitespace-nowrap">₹{rowTotal.toLocaleString()}</p>
-                        </div>
-                        <button type="button" onClick={() => updateItem(index, 'showAdvanced', !item.showAdvanced)} className={`p-2 rounded-lg transition-all ${item.showAdvanced ? 'bg-indigo-600 text-white' : 'bg-white border text-slate-400'}`} title="Safety Fields">
-                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A3.323 3.323 0 0010.605 7.09a3.323 3.323 0 00-4.016 4.016 3.323 3.323 0 001.037 4.016 3.323 3.323 0 004.016 1.037 3.323 3.323 0 004.016-1.037 3.323 3.323 0 001.037-4.016z" /></svg>
-                        </button>
-                        <button type="button" onClick={() => handleRemoveItem(index)} className="p-2 text-slate-300 hover:text-red-500">✕</button>
-                      </div>
+              {formData.items.map((item, index) => (
+                <div key={index} className="grid grid-cols-1 md:grid-cols-12 gap-2 md:gap-3 bg-white p-2 md:p-3 rounded-xl border border-slate-100 hover:border-indigo-200 transition-colors shadow-sm items-center relative group">
+                  <div className="col-span-1 md:col-span-5 relative">
+                    <div className="flex border border-slate-200 rounded-lg overflow-hidden bg-slate-50 focus-within:bg-white focus-within:ring-1 focus-within:ring-indigo-400 transition-all">
+                      <input type="text" placeholder="Type item..." required className="flex-1 px-3 py-1.5 outline-none font-bold text-xs uppercase bg-transparent" value={activeProductIdx === index ? productSearch : item.productName} onChange={e => { setProductSearch(e.target.value); setActiveProductIdx(index); setIsProductForced(false); }} onFocus={() => { setProductSearch(item.productName || ''); setActiveProductIdx(index); }} />
+                      <button type="button" onClick={() => { setActiveProductIdx(activeProductIdx === index ? null : index); setIsProductForced(true); }} className="px-2 text-slate-300"><svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 9l-7 7-7-7" /></svg></button>
                     </div>
-                    
-                    {item.showAdvanced && (
-                      <div className="grid grid-cols-2 gap-4 mt-4 pt-4 border-t border-slate-200 animate-in slide-in-from-top-2 duration-300">
-                        <div>
-                          <label className="block text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Batch Number (Safety)</label>
-                          <input type="text" placeholder="e.g. B-012" className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-bold uppercase" value={item.batchNumber} onChange={e => updateItem(index, 'batchNumber', e.target.value)} />
-                        </div>
-                        <div>
-                          <label className="block text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Expiry Date</label>
-                          <input type="date" className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-bold" value={item.expiryDate} onChange={e => updateItem(index, 'expiryDate', e.target.value)} />
-                        </div>
+                    {activeProductIdx === index && (
+                      <div className="absolute z-[110] left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-2xl max-h-48 overflow-y-auto" onScroll={e => handleLazyScroll(e, 'product')}>
+                        {filteredProducts.map(p => (
+                          <button key={p.id} type="button" onClick={() => selectProduct(p, index)} className="w-full text-left px-3 py-2 hover:bg-indigo-50 border-b border-slate-50 flex justify-between items-center">
+                            <span className="font-black text-slate-800 uppercase text-[10px]">{p.name}</span>
+                            <span className="text-[9px] font-black text-indigo-600">₹{formData.tier === 'Wholesale' ? (p.wholesaleRate || p.defaultRate) : p.defaultRate}</span>
+                          </button>
+                        ))}
                       </div>
                     )}
                   </div>
-                );
-              })}
-            </div>
-
-            <div className="flex justify-between items-center py-4">
-              <div className="bg-slate-900 text-white px-8 py-4 rounded-2xl shadow-xl inline-block">
-                <p className="text-[10px] uppercase font-black opacity-50 tracking-widest mb-1">Net Bill Amount</p>
-                <p className="text-4xl font-black">₹{currentTotal.toLocaleString()}</p>
-              </div>
-              <div className="text-right">
-                <p className="text-[10px] font-black text-slate-400 uppercase mb-1">Tier: <span className="text-indigo-600">{formData.tier}</span></p>
-                <p className="text-[10px] font-black text-slate-400 uppercase italic">* Standard taxes applicable *</p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-slate-50 p-6 rounded-3xl border border-slate-100">
-              <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Payment Mode</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['Cash', 'UPI', 'Pending'] as PaymentMethod[]).map(mode => (
-                    <button key={mode} type="button" onClick={() => setFormData({ ...formData, paymentMethod: mode })} className={`py-3 rounded-xl text-xs font-bold transition-all border ${formData.paymentMethod === mode ? 'bg-indigo-600 text-white border-indigo-600 shadow-md' : 'bg-white text-slate-500 border-slate-200 hover:border-indigo-300'}`}>{mode}</button>
-                  ))}
+                  <div className="grid grid-cols-3 md:contents gap-2 col-span-1 md:col-span-3">
+                    <div className="col-span-1 md:col-span-2">
+                       <select className="w-full px-2 py-1.5 border border-slate-200 rounded-lg font-bold bg-slate-50 text-[10px] uppercase" value={item.unit} onChange={e => { const it = [...formData.items]; it[index].unit = e.target.value; setFormData({...formData, items: it}); }}>
+                         {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                       </select>
+                    </div>
+                    <div className="col-span-1 md:col-span-1">
+                      <input type="number" step="any" required className="w-full px-2 py-1.5 border border-slate-200 rounded-lg font-bold bg-slate-50 text-xs" value={item.quantity} onChange={e => { const it = [...formData.items]; it[index].quantity = Number(e.target.value); setFormData({...formData, items: it}); }} />
+                    </div>
+                    <div className="col-span-1 md:col-span-2 md:text-right">
+                      <input type="number" step="any" required className="w-full px-2 py-1.5 border border-slate-200 rounded-lg font-bold bg-slate-50 text-xs md:text-right" value={item.rate} onChange={e => { const it = [...formData.items]; it[index].rate = Number(e.target.value); setFormData({...formData, items: it}); }} />
+                    </div>
+                  </div>
+                  <div className="col-span-1 md:col-span-2 flex items-center justify-end">
+                    <div className="text-right">
+                       <p className="font-black text-indigo-600 text-sm">₹{calculateItemTotal(Number(item.quantity), Number(item.rate), item.unit || 'kg').toLocaleString()}</p>
+                    </div>
+                    <button type="button" onClick={() => setFormData({...formData, items: formData.items.filter((_, i) => i !== index)})} className="ml-3 text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity">✕</button>
+                  </div>
                 </div>
-                {formData.paymentMethod === 'UPI' && (
-                  <select 
-                    className="w-full mt-3 px-3 py-2 border border-slate-200 rounded-lg outline-none bg-emerald-50 text-xs font-bold"
-                    value={formData.selectedUpiQrId}
-                    onChange={e => setFormData({...formData, selectedUpiQrId: e.target.value})}
-                  >
-                    <option value="">Select QR Profile...</option>
-                    {data.upiQrs?.map(q => <option key={q.id} value={q.id}>{q.name}</option>)}
-                  </select>
-                )}
-              </div>
-              <div>
-                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Cash Received (₹)</label>
-                 <input 
-                  type="number" 
-                  className="w-full px-4 py-3 border-2 border-indigo-100 rounded-xl outline-none bg-indigo-50/30 font-black text-indigo-600 placeholder-indigo-300 focus:border-indigo-500" 
-                  placeholder="0.00" 
-                  value={formData.cashPaid} 
-                  onChange={e => setFormData({ ...formData, cashPaid: e.target.value })} 
-                 />
-                 {cashPaidVal > 0 && (
-                   <p className="mt-2 text-[10px] font-black uppercase text-emerald-600 text-right">Return: ₹{balanceToReturn.toLocaleString()}</p>
-                 )}
-              </div>
+              ))}
+              <button type="button" onClick={() => setFormData({...formData, items: [...formData.items, {productName: '', quantity: 1, unit: 'kg', rate: 0}]})} className="w-full py-3 border-2 border-dashed border-slate-100 rounded-xl text-[10px] font-black uppercase text-slate-400 hover:border-indigo-200 hover:text-indigo-600 transition-all">+ Add Another Item</button>
             </div>
 
-            {formData.paymentMethod === 'UPI' && selectedQr && (
-              <div className="flex flex-col items-center p-6 bg-emerald-50 rounded-[40px] border border-emerald-100 animate-in fade-in zoom-in duration-500">
-                  <p className="text-[10px] font-black text-emerald-700 uppercase tracking-[0.3em] mb-4">Customer Scan Area: {selectedQr.name}</p>
-                  <img src={selectedQr.imageData} alt="Scan to pay" className="w-48 h-48 object-contain bg-white p-4 rounded-3xl shadow-xl border-4 border-emerald-200" />
-                  <p className="mt-4 text-sm font-black text-emerald-800">COLLECT: ₹{currentTotal.toLocaleString()}</p>
-              </div>
-            )}
-
-            <div className="flex justify-end items-center pt-8 border-t border-slate-100 gap-4">
-              <button type="button" onClick={() => { setShowAddForm(false); resetForm(); }} className="px-8 py-4 text-slate-500 font-bold hover:bg-slate-50 rounded-2xl transition-colors uppercase text-xs tracking-widest">Discard</button>
-              <button type="submit" className="px-12 py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-2xl shadow-lg transition-all active:scale-95 uppercase text-xs tracking-widest">Generate Bill</button>
+            <div className="sticky bottom-0 bg-slate-900 text-white p-4 flex flex-col md:flex-row justify-between items-center gap-4 rounded-b-[32px] shadow-[0_-10px_30px_rgba(0,0,0,0.2)] z-[100]">
+               <div className="flex items-center space-x-6">
+                  <div>
+                    <p className="text-[8px] uppercase font-black opacity-50 tracking-widest">Grand Total</p>
+                    <p className="text-3xl font-black tracking-tight">₹{currentTotal.toLocaleString()}</p>
+                  </div>
+                  <div className="hidden md:block h-10 w-px bg-white/10"></div>
+                  <div className="hidden md:block">
+                    <p className="text-[8px] uppercase font-black opacity-50 tracking-widest">Active Items</p>
+                    <p className="text-lg font-black">{formData.items.length}</p>
+                  </div>
+               </div>
+               <div className="flex gap-3 w-full md:w-auto">
+                  <button type="button" onClick={() => { setShowAddForm(false); resetForm(); }} className="flex-1 md:flex-none px-6 py-3 text-white/50 font-bold uppercase text-[10px] tracking-widest hover:text-white">Discard</button>
+                  <button type="submit" className="flex-1 md:flex-none px-10 py-3 bg-indigo-500 hover:bg-indigo-400 text-white font-black rounded-xl shadow-xl transition-all active:scale-95 uppercase text-xs tracking-widest">Generate Bill</button>
+               </div>
             </div>
           </form>
         </div>
       )}
 
-      {/* Sales List Controls & Sort Bar */}
-      <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4 no-print">
-        <div className="flex items-center space-x-2 bg-slate-50 p-1 rounded-2xl border border-slate-100 overflow-x-auto max-w-full">
-           <span className="text-[9px] font-black text-slate-400 uppercase ml-2 mr-1 shrink-0">Sort:</span>
-           <SortButton label="Date" field="date" />
-           <SortButton label="Customer" field="customerName" />
-           <SortButton label="Amount" field="totalAmount" />
-        </div>
-        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest hidden md:block">
-          Showing {sortedSales.length} Entries
-        </p>
-      </div>
+      {lastSavedSale && (
+        <div className="fixed inset-0 z-[150] flex flex-col md:flex-row bg-slate-950/95 backdrop-blur-2xl animate-in fade-in duration-300 overflow-hidden print:static print:bg-white print:backdrop-blur-none">
+          <div className="no-print w-full md:w-80 bg-slate-900 border-r border-slate-800 p-8 flex flex-col overflow-y-auto no-scrollbar">
+            <div className="mb-8 border-b border-slate-800 pb-4 text-center">
+              <div className="w-16 h-16 bg-emerald-500/10 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-4 shadow-inner ring-4 ring-emerald-500/5">
+                <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+              </div>
+              <h3 className="text-white font-black uppercase text-lg tracking-widest">SALE SAVED</h3>
+              <p className="text-slate-500 text-[10px] uppercase font-bold mt-1 tracking-widest">{lastSavedSale.invoiceNumber}</p>
+            </div>
+            <div className="space-y-6">
+              <section>
+                <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-3">Paper Format</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(['A4', 'Thermal80', 'Thermal58'] as PrintSize[]).map(size => (
+                    <button key={size} onClick={() => setPrintSize(size)} className={`py-3 rounded-xl text-[9px] font-black uppercase border transition-all ${printSize === size ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'}`}>{size}</button>
+                  ))}
+                </div>
+              </section>
+              <section className="space-y-3">
+                 <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1">Print Options</label>
+                 <label className="flex items-center justify-between p-3 bg-slate-800/50 rounded-xl border border-slate-700 cursor-pointer hover:bg-slate-800 transition-all group">
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider group-hover:text-white">Owner's Copy</span>
+                    <input type="checkbox" checked={includeOwnerCopy} onChange={e => setIncludeOwnerCopy(e.target.checked)} className="w-4 h-4 text-indigo-600 rounded bg-slate-700 border-slate-600" />
+                 </label>
+                 {lastSavedSale.customerId && (
+                   <label className="flex items-center justify-between p-3 bg-slate-800/50 rounded-xl border border-slate-700 cursor-pointer hover:bg-slate-800 transition-all group">
+                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider group-hover:text-white">Include Dues</span>
+                      <input type="checkbox" checked={includeDues} onChange={e => setIncludeDues(e.target.checked)} className="w-4 h-4 text-indigo-600 rounded bg-slate-700 border-slate-600" />
+                   </label>
+                 )}
+              </section>
+            </div>
+            <div className="mt-auto pt-8 border-t border-slate-800 space-y-3">
+              <button onClick={() => window.print()} className="w-full py-5 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-2xl shadow-xl transition-all active:scale-95 flex items-center justify-center space-x-3 text-xs uppercase tracking-widest"><IconPrint className="w-5 h-5" /><span>Print Document</span></button>
+              <button onClick={() => { setLastSavedSale(null); resetForm(); setShowAddForm(true); }} className="w-full py-5 bg-emerald-600 text-white font-black rounded-2xl text-[10px] uppercase tracking-widest shadow-lg hover:bg-emerald-700 transition-all active:scale-95 flex items-center justify-center space-x-2"><IconAdd className="w-4 h-4" /><span>Start Next Bill</span></button>
+              <button onClick={() => { setLastSavedSale(null); resetForm(); }} className="w-full py-5 text-slate-500 hover:text-rose-500 font-black text-[10px] uppercase tracking-widest">Close View</button>
+            </div>
+          </div>
+          
+          <div className="flex-1 bg-slate-950 overflow-y-auto p-4 md:p-12 flex justify-center no-scrollbar print:static print:block print:p-0 print:bg-white print:overflow-visible">
+            {/* CANVAS POWERED PRINT ENGINE */}
+            <div id="print-engine" className="bg-white shadow-2xl transition-all duration-300 print:shadow-none print:m-0 print:static" style={{ 
+              width: paperWidth, 
+              minHeight: printSize === 'A4' ? '297mm' : 'auto', 
+              fontSize: `${effectiveFontSize}px`, 
+              lineHeight: template.applyToPrinting ? template.lineSpacing : 1.2, 
+              fontFamily: isThermal ? 'monospace' : 'inherit', 
+              color: 'black', 
+              boxSizing: 'border-box',
+              overflow: 'hidden',
+              wordBreak: 'break-word'
+            }}>
+              <div className={`${(template.applyToPrinting && template.compactMode) ? 'p-1' : (isThermal ? 'p-2' : 'p-8')} border-black`} style={{ 
+                borderWidth: template.applyToPrinting ? `${template.borderWeight}px` : '2px', 
+                paddingLeft: (template.applyToPrinting && template.compactMode) ? '1mm' : (isThermal ? '2mm' : '8mm'), 
+                paddingRight: (template.applyToPrinting && template.compactMode) ? '1mm' : (isThermal ? '2mm' : '8mm') 
+              }}>
+                <div className="text-center mb-4">
+                  {((template.applyToPrinting ? template.showLogo : true) && data.business?.logo) && (
+                    <img src={data.business.logo} alt="Logo" className="mx-auto mb-2 object-contain opacity-90 mix-blend-multiply" style={{ width: template.applyToPrinting ? `${template.logoSize * scalingFactor}px` : '60px' }} />
+                  )}
+                  <h1 className="font-black uppercase tracking-tighter" style={{ fontSize: '1.6em', color: template.applyToPrinting ? template.brandColor : '#000' }}>{data.business?.name}</h1>
+                  <p className="font-bold opacity-75 uppercase tracking-widest" style={{ fontSize: '0.65em' }}>{data.business?.tagline}</p>
+                  <div className="mt-1 font-medium" style={{ fontSize: '0.6em' }}><p>{data.business?.address}</p><p>Ph: {data.business?.phone}</p></div>
+                  <h2 className="mt-3 font-black uppercase tracking-[0.2em] py-1 text-white text-center" style={{ backgroundColor: template.applyToPrinting ? template.brandColor : '#000', fontSize: '0.75em' }}>Sale Invoice</h2>
+                </div>
 
-      <div className={`bg-white rounded-[40px] shadow-sm border overflow-hidden transition-all ${viewMode === 'Mistakes' ? 'border-rose-100 shadow-rose-50' : 'border-slate-100'}`}>
-        <div className={`p-8 border-b flex justify-between items-center ${viewMode === 'Mistakes' ? 'bg-rose-50/30 border-rose-100' : 'border-slate-50'}`}>
-           <h4 className={`text-[10px] font-black uppercase tracking-[0.3em] ${viewMode === 'Mistakes' ? 'text-rose-400' : 'text-slate-400'}`}>
-             {viewMode === 'Active' ? 'Session Sales Queue' : 'Mistaken Entry Logs'}
-           </h4>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead className={`text-[10px] font-black uppercase tracking-[0.2em] ${viewMode === 'Mistakes' ? 'bg-rose-50/50 text-rose-300' : 'bg-slate-50 text-slate-400'}`}>
-              <tr>
-                <th className="px-8 py-5 cursor-pointer hover:opacity-70 transition-opacity" onClick={() => toggleSort('date')}>
-                  <div className="flex items-center"><span>Date</span><SortIcon field="date" /></div>
-                </th>
-                <th className="px-8 py-5 cursor-pointer hover:opacity-70 transition-opacity" onClick={() => toggleSort('customerName')}>
-                  <div className="flex items-center"><span>Customer</span><SortIcon field="customerName" /></div>
-                </th>
-                <th className="px-8 py-5">Items & Safety Detail</th>
-                <th className="px-8 py-5 text-right cursor-pointer hover:opacity-70 transition-opacity" onClick={() => toggleSort('totalAmount')}>
-                  <div className="flex items-center justify-end"><span>Amount</span><SortIcon field="totalAmount" /></div>
-                </th>
-                <th className="px-8 py-5 text-center">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {sortedSales.slice(0, 50).map((sale) => (
-                <tr key={sale.id} className={`hover:bg-slate-50/50 transition-colors ${sale.isMistake ? 'opacity-70' : ''}`}>
-                  <td className="px-8 py-5 text-xs font-bold text-slate-500">{new Date(sale.date).toLocaleDateString()}</td>
-                  <td className="px-8 py-5 text-sm font-black text-slate-800">
-                    <p className="uppercase">{sale.customerName}</p>
-                    <p className="text-[9px] text-slate-400 font-bold tracking-widest">{sale.invoiceNumber}</p>
-                  </td>
-                  <td className="px-8 py-5">
-                    <div className="flex flex-wrap gap-1">
-                      {sale.items.map((it, idx) => (
-                        <span key={idx} className="px-2 py-0.5 rounded text-[8px] font-black uppercase border bg-white border-slate-200 text-slate-500">
+                <div className="flex justify-between mb-4 font-black uppercase" style={{ fontSize: '0.65em' }}>
+                  <div className="text-left flex-1">
+                    <p className="opacity-40">Client</p>
+                    <p className="text-base tracking-tight leading-tight">{lastSavedSale.customerName}</p>
+                  </div>
+                  <div className="text-right flex-1">
+                    <p className="opacity-40">Ref</p>
+                    <p>#{lastSavedSale.invoiceNumber.split('-')[1]}</p>
+                    <p>{formatDate(lastSavedSale.date)}</p>
+                  </div>
+                </div>
+
+                <table className="w-full mb-6 border-collapse table-auto">
+                  <thead className="border-black uppercase" style={{ borderTopWidth: '2px', borderBottomWidth: '2px', fontSize: '0.6em' }}>
+                    <tr>
+                      <th className="py-1.5 text-left">Item</th>
+                      <th className="py-1.5 text-center">Qty</th>
+                      {(template.applyToPrinting ? template.showRatePerUnit : true) && <th className="py-1.5 text-right">Rate</th>}
+                      <th className="py-1.5 text-right">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 font-bold" style={{ fontSize: '0.8em' }}>
+                    {lastSavedSale.items.map((it, i) => (
+                      <tr key={i}>
+                        <td className="py-2 uppercase leading-tight pr-1">
                           {it.productName}
-                          {it.batchNumber && <span className="ml-1 text-indigo-500">[{it.batchNumber}]</span>}
-                        </span>
-                      ))}
+                          {(template.applyToPrinting && template.showSKU) && <div className="text-[0.6em] opacity-40">SKU: AM-{i+1}</div>}
+                        </td>
+                        <td className="py-2 text-center whitespace-nowrap">{it.quantity}{it.unit}</td>
+                        {(template.applyToPrinting ? template.showRatePerUnit : true) && <td className="py-2 text-right whitespace-nowrap">₹{it.rate}</td>}
+                        <td className="py-2 text-right whitespace-nowrap">₹{it.total.toLocaleString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+
+                <div className="flex flex-col items-end pt-3 border-black" style={{ borderTopWidth: '2px' }}>
+                   <div className="w-full md:w-2/3 space-y-1.5">
+                      <div className="flex justify-between font-black uppercase" style={{ fontSize: '0.65em' }}><span className="opacity-50">Sub-Total</span><span>₹{lastSavedSale.totalAmount.toLocaleString()}</span></div>
+                      <div className="flex justify-between items-baseline">
+                        <span className="font-black uppercase" style={{ fontSize: '0.65em' }}>Net Payable</span>
+                        <span className="font-black" style={{ fontSize: '1.8em', letterSpacing: '-0.05em', color: template.applyToPrinting ? template.brandColor : '#000' }}>₹{lastSavedSale.totalAmount.toLocaleString()}</span>
+                      </div>
+                      {includeDues && customerForDues && (template.applyToPrinting ? template.showDues : true) && (
+                        <div className="flex justify-between font-black pt-1 border-t border-black border-dashed" style={{ fontSize: '0.65em' }}>
+                          <span className="uppercase">Outstanding</span>
+                          <span className="text-base">₹{currentTotalDues.toLocaleString()}</span>
+                        </div>
+                      )}
+                   </div>
+                   <p className="uppercase font-black opacity-40 mt-4" style={{ fontSize: '0.45em' }}>Pay Mode: {lastSavedSale.paymentMethod} | {currentTime}</p>
+                </div>
+
+                {(template.applyToPrinting ? template.footerText : true) && (
+                   <p className="mt-6 text-center font-bold italic opacity-60" style={{ fontSize: '0.6em' }}>
+                     {applyTemplate(template.footerText || "Thank you for your business!", lastSavedSale)}
+                   </p>
+                )}
+
+                {(template.applyToPrinting ? template.includeSignatures : true) && (
+                  <div className="mt-12 mb-2 flex justify-between px-1">
+                    <div className="text-center">
+                      <div className="border-t border-black w-16 mx-auto mb-1"></div>
+                      <p className="font-black uppercase opacity-60" style={{ fontSize: '0.4em' }}>Receiver</p>
                     </div>
-                  </td>
-                  <td className={`px-8 py-5 text-sm font-black text-right ${viewMode === 'Mistakes' ? 'text-rose-400 line-through' : 'text-indigo-600'}`}>
-                    ₹{sale.totalAmount.toLocaleString()}
-                  </td>
-                  <td className="px-8 py-5 text-center">
-                    {viewMode === 'Active' && (isAdmin || sale.createdBy === data.currentUser?.id) && (
-                      <button onClick={() => flagAsMistake(sale.id)} className="p-2 text-rose-300 hover:text-rose-600 bg-rose-50 rounded-xl transition-all">
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                      </button>
-                    )}
+                    <div className="text-center">
+                      <div className="border-t border-black w-16 mx-auto mb-1"></div>
+                      <p className="font-black uppercase opacity-60" style={{ fontSize: '0.4em' }}>Authorized</p>
+                    </div>
+                  </div>
+                )}
+
+                <div className="mt-6 text-center border-t border-dotted border-gray-400 pt-3">
+                  <p className="font-black uppercase tracking-widest opacity-30" style={{ fontSize: '0.45em' }}>A M Food Processing QC Passed</p>
+                  {(template.applyToPrinting && template.termsText) && (
+                     <p className="mt-1 font-medium opacity-40 leading-tight" style={{ fontSize: '0.4em' }}>{template.termsText}</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden no-print">
+          <div className="px-6 py-3 border-b bg-slate-50/50 flex justify-between items-center">
+             <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Recent Sales Flow</h4>
+             <button onClick={onNavigateToInvoices} className="text-[10px] font-black text-indigo-600 uppercase tracking-widest hover:underline">Full Audit →</button>
+          </div>
+          <table className="w-full text-left">
+            <tbody className="divide-y divide-slate-100">
+              {data.sales.slice(0, 10).map((sale) => (
+                <tr key={sale.id} className="hover:bg-slate-50 group transition-colors">
+                  <td className="px-6 py-4 text-xs font-bold text-slate-500">{formatDate(sale.date)}</td>
+                  <td className="px-6 py-4 text-sm font-black text-slate-800 uppercase tracking-tight">{sale.customerName}</td>
+                  <td className="px-6 py-4 text-right font-black text-indigo-600">₹{sale.totalAmount.toLocaleString()}</td>
+                  <td className="px-6 py-4 text-center">
+                     <button onClick={() => { setLastSavedSale(sale); setPrintSize('Thermal80'); }} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"><IconPrint className="w-4 h-4" /></button>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
-        </div>
       </div>
-
-      {lastSavedSale && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-xl animate-in fade-in duration-300">
-          <div className="bg-white w-full max-w-md rounded-[50px] shadow-2xl overflow-hidden p-10 text-center animate-in zoom-in-95 duration-200 no-print">
-            <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6 shadow-inner ring-8 ring-emerald-50">
-              <svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={4} d="M5 13l4 4L19 7" /></svg>
-            </div>
-            <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tight mb-2">Invoice Saved!</h3>
-            <p className="text-slate-500 font-medium mb-6 text-xs">Invoice <b>{lastSavedSale.invoiceNumber}</b> processed.</p>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-              <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase mb-2">Print Size</label>
-                <select 
-                  value={printSize} 
-                  onChange={(e) => setPrintSize(e.target.value as PrintSize)}
-                  className="w-full p-3 bg-slate-50 rounded-2xl outline-none font-bold text-sm border border-slate-100"
-                >
-                  <option value="A4">A4 Standard</option>
-                  <option value="Thermal80">80mm Thermal</option>
-                  <option value="Thermal58">58mm Mobile</option>
-                </select>
-              </div>
-              <div className="flex flex-col justify-end">
-                <div className="p-3 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-center space-x-3 h-[46px]">
-                  <input 
-                    type="checkbox" 
-                    id="modal-large-logo" 
-                    checked={isLargeLogo} 
-                    onChange={(e) => setIsLargeLogo(e.target.checked)}
-                    className="w-4 h-4 text-indigo-600 rounded"
-                  />
-                  <label htmlFor="modal-large-logo" className="text-[10px] font-black uppercase text-slate-600 cursor-pointer">Large Logo</label>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 gap-3">
-              <button 
-                onClick={handleModalPrint}
-                className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-2xl shadow-xl transition-all active:scale-95 flex items-center justify-center space-x-3 uppercase text-xs tracking-widest"
-              >
-                <IconPrint className="w-5 h-5" />
-                <span>Print Invoice</span>
-              </button>
-              <button 
-                onClick={handleModalClose}
-                className="w-full py-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-black rounded-2xl transition-all active:scale-95 text-xs uppercase tracking-widest"
-              >
-                Next New Bill
-              </button>
-            </div>
-          </div>
-          
-          <div className={`print-only hidden print:block bg-white text-black p-4 transition-all duration-300 mx-auto ${printSize === 'Thermal58' ? 'max-w-[240px] text-[10px]' : printSize === 'Thermal80' ? 'max-w-[320px] text-xs' : 'max-w-full text-sm'}`} style={{ fontFamily: printSize === 'A4' ? 'sans-serif' : 'monospace', width: '100%', minHeight: '100vh' }}>
-             <div className="p-4 border-2 border-black">
-                <div className="text-center mb-6 pb-4 border-b-2 border-black">
-                  {data.business?.logo && (
-                    <img src={data.business.logo} alt="Logo" className={`${isLargeLogo ? 'w-48' : 'w-24'} mx-auto mb-4 object-contain`} />
-                  )}
-                  <h1 className={`${printSize !== 'A4' ? 'text-lg' : 'text-2xl'} font-bold uppercase`}>{data.business?.name}</h1>
-                  <p className="text-sm font-bold">{data.business?.tagline}</p>
-                  <p className="text-xs">{data.business?.address}</p>
-                  <p className="text-xs">Ph: {data.business?.phone}</p>
-                  {data.business?.gst && <p className="text-xs font-bold">GSTIN: {data.business.gst}</p>}
-                </div>
-                <div className="flex justify-between mb-4 text-[10px] font-bold uppercase">
-                  <div>Customer: {lastSavedSale.customerName}</div>
-                  <div className="text-right">Inv: #{lastSavedSale.invoiceNumber.split('-')[1]}<br/>Date: {lastSavedSale.date}</div>
-                </div>
-                <table className="w-full text-[10px] text-left mb-6 border-collapse">
-                  <thead className="border-y-2 border-black">
-                    <tr>
-                      <th className="py-2">Item Detail</th>
-                      <th className="py-2 text-center">Qty</th>
-                      <th className="py-2 text-center">Rate</th>
-                      <th className="py-2 text-right">Total</th>
-                    </tr>
-                  </thead>
-                  <tbody className="border-b-2 border-black">
-                    {lastSavedSale.items.map((it, i) => (
-                      <tr key={i} className="border-b border-gray-100">
-                        <td className="py-2 font-bold uppercase">
-                          {it.productName}
-                          {(it.batchNumber || it.expiryDate) && (
-                            <div className="text-[8px] font-medium opacity-70">
-                              {it.batchNumber && `B: ${it.batchNumber}`} {it.expiryDate && `| E: ${it.expiryDate}`}
-                            </div>
-                          )}
-                        </td>
-                        <td className="py-2 text-center">{it.quantity}{it.unit}</td>
-                        <td className="py-2 text-center">₹{it.rate}</td>
-                        <td className="py-2 text-right font-bold">₹{it.total.toLocaleString()}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <div className="text-right space-y-1">
-                   <p className="text-[10px] uppercase font-bold text-gray-600">Net Payable</p>
-                   <p className={`${printSize !== 'A4' ? 'text-xl' : 'text-2xl'} font-black`}>₹{lastSavedSale.totalAmount.toLocaleString()}</p>
-                   <p className="text-[10px] font-bold uppercase">Mode: {lastSavedSale.paymentMethod}</p>
-                </div>
-                <div className="mt-12 text-center text-[10px] font-bold italic border-t border-black pt-4">
-                  * Food Quality Verified - A M Food Processing *
-                </div>
-             </div>
-          </div>
-        </div>
-      )}
-
+      
       <style dangerouslySetInnerHTML={{ __html: `
-        @media print {
-          body * { visibility: hidden !important; }
-          .print-only, .print-only * { visibility: visible !important; }
-          .print-only { 
-            position: absolute !important; 
-            left: 0 !important; 
-            top: 0 !important; 
-            width: 100% !important; 
-            background: white !important; 
-            margin: 0 !important; 
-            padding: 0 !important; 
-            box-shadow: none !important; 
-            display: block !important;
-          }
-          @page { margin: 0; }
-        }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
       `}} />
     </div>
   );

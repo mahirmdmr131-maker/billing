@@ -1,6 +1,7 @@
 
 import React, { useState, useRef } from 'react';
 import { BusinessInfo, User, AppData } from '../types';
+import { initGoogleAuth, getBackupInfo, downloadFromDrive } from '../utils/googleDrive';
 
 interface SetupScreenProps {
   onComplete: (business: BusinessInfo, admin: User, recoveryCode: string) => void;
@@ -8,6 +9,7 @@ interface SetupScreenProps {
 }
 
 const SetupScreen: React.FC<SetupScreenProps> = ({ onComplete, onImport }) => {
+  const [isSyncing, setIsSyncing] = useState(false);
   const [formData, setFormData] = useState<BusinessInfo>({
     name: 'A M Food Processing',
     phone: '',
@@ -36,6 +38,42 @@ const SetupScreen: React.FC<SetupScreenProps> = ({ onComplete, onImport }) => {
 
   const handleImportClick = () => {
     fileInputRef.current?.click();
+  };
+
+  const handleDriveRestore = () => {
+    setIsSyncing(true);
+    initGoogleAuth(async (token, email) => {
+      try {
+        // Use default folder name if not yet initialized
+        const folderName = 'AM_Food_Manager_Backups';
+        const info = await getBackupInfo(folderName);
+        
+        if (!info) {
+          alert(`No backup file found in Google Drive folder "${folderName}". Please ensure you have synced data previously using the authorized account.`);
+          setIsSyncing(false);
+          return;
+        }
+
+        if (confirm(`Cloud backup found from ${new Date(info.modifiedTime).toLocaleString()}. Restore all data?`)) {
+          const restoredData = await downloadFromDrive(info.id);
+          if (restoredData) {
+            onImport({
+              ...restoredData,
+              isInitialized: true,
+              currentUser: null,
+              isDriveConnected: true // Maintain connection
+            });
+          } else {
+            alert('Failed to download the backup file.');
+          }
+        }
+      } catch (err) {
+        console.error("Drive Restore Error:", err);
+        alert('An error occurred during cloud restoration.');
+      } finally {
+        setIsSyncing(false);
+      }
+    });
   };
 
   const handleFileImport = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -88,16 +126,35 @@ const SetupScreen: React.FC<SetupScreenProps> = ({ onComplete, onImport }) => {
           <h2 className="text-3xl font-black mb-2 uppercase tracking-tight">Business Initializer</h2>
           <p className="text-indigo-100 opacity-90 font-medium text-sm">Configure your workspace or restore from a previous save.</p>
           
-          <div className="mt-6 flex justify-center">
+          <div className="mt-6 flex flex-wrap justify-center gap-3">
             <button 
               type="button"
               onClick={handleImportClick}
-              className="px-6 py-2 bg-white/20 hover:bg-white/30 text-white rounded-xl text-xs font-black uppercase tracking-widest transition-all flex items-center space-x-2 border border-white/20"
+              className="px-6 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center space-x-2 border border-white/10"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
               </svg>
-              <span>Restore from Backup</span>
+              <span>Local Backup</span>
+            </button>
+            <button 
+              type="button"
+              disabled={isSyncing}
+              onClick={handleDriveRestore}
+              className={`px-6 py-2 bg-white text-indigo-600 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center space-x-2 shadow-lg hover:bg-slate-50 ${isSyncing ? 'opacity-50' : ''}`}
+            >
+              {isSyncing ? (
+                <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+              ) : (
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M16.5 2h-9L2 12l5.5 10h9L22 12l-5.5-10z" fillOpacity=".1"/>
+                  <path d="M7.5 2l-5.5 10 5.5 10h9l5.5-10-5.5-10h-9z" fill="white"/>
+                  <path d="M12 21l-4.5-8h9L12 21z" fill="#34A853"/>
+                  <path d="M7.5 2l4.5 8h-9L7.5 2z" fill="#FBBC04"/>
+                  <path d="M16.5 2L12 10h9l-4.5-8z" fill="#4285F4"/>
+                </svg>
+              )}
+              <span>{isSyncing ? 'Accessing Drive...' : 'Google Drive Restore'}</span>
             </button>
             <input type="file" ref={fileInputRef} onChange={handleFileImport} accept=".json" className="hidden" />
           </div>

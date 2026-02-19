@@ -1,6 +1,5 @@
-
 import React, { useState, useMemo } from 'react';
-import { AppData, Customer, Sale, NavigationTab } from '../types';
+import { AppData, Customer, Sale, NavigationTab, SaleItem, PaymentMethod } from '../types';
 import { IconAdd, IconPrint } from './Icons';
 
 interface CustomersProps {
@@ -10,10 +9,47 @@ interface CustomersProps {
 }
 
 type SummaryPeriod = 'week' | 'month' | 'year';
-type IndividualPrintMode = 'full' | 'sales_only' | 'pending_only' | 'summary';
+type IndividualPrintMode = 'full' | 'sales_only' | 'pending_only' | 'summary' | 'settlements' | 'weekly';
 type PrintSize = 'A4' | 'Thermal80' | 'Thermal58';
 type CustomerSortKey = 'name' | 'dues' | 'revenue' | 'date';
 type SortDirection = 'asc' | 'desc';
+
+const formatDate = (dateStr: string) => {
+  if (!dateStr) return '';
+  if (dateStr.includes('T')) {
+    return new Date(dateStr).toLocaleDateString('en-GB');
+  }
+  return dateStr.split('-').reverse().join('/');
+};
+
+const summaryData = (sales: Sale[], period: SummaryPeriod) => {
+  const now = new Date();
+  const todayStr = now.toISOString().split('T')[0];
+  const currentMonthStr = todayStr.substring(0, 7);
+  const currentYearStr = todayStr.substring(0, 4);
+  
+  const getWeekStart = () => {
+    const d = new Date();
+    const day = d.getDay();
+    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+    return new Date(d.setDate(diff)).toISOString().split('T')[0];
+  };
+  const weekStartStr = getWeekStart();
+
+  const validSales = sales.filter(s => !s.isMistake);
+  let filtered: Sale[] = [];
+  
+  if (period === 'week') {
+    filtered = validSales.filter(s => s.date >= weekStartStr);
+  } else if (period === 'month') {
+    filtered = validSales.filter(s => s.date.startsWith(currentMonthStr));
+  } else {
+    filtered = validSales.filter(s => s.date.startsWith(currentYearStr));
+  }
+
+  const total = filtered.reduce((sum, s) => sum + s.totalAmount, 0);
+  return { total, count: filtered.length, items: filtered };
+};
 
 const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInvoices }) => {
   const [showForm, setShowForm] = useState(false);
@@ -22,6 +58,7 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
   const [searchTerm, setSearchTerm] = useState('');
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
+  const [settlementMethod, setSettlementMethod] = useState<PaymentMethod>('Cash');
   
   // Sorting State
   const [sortKey, setSortKey] = useState<CustomerSortKey>('name');
@@ -36,6 +73,7 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
   const [indivPrintMode, setIndivPrintMode] = useState<IndividualPrintMode>('full');
   const [indivIncludeDues, setIndivIncludeDues] = useState(true);
   const [printSize, setPrintSize] = useState<PrintSize>('A4');
+  const [selectedSettlementDate, setSelectedSettlementDate] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -47,22 +85,19 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
 
   const isAdmin = data.currentUser?.role === 'admin';
 
-  // Revenue calculation helper used for sorting and global stats
   const getCustomerRevenue = (customerId: string) => {
     return (data.sales || [])
-      .filter(s => s.customerId === customerId && !s.isMistake)
-      .reduce((sum, s) => sum + s.totalAmount, 0);
+      .filter((s: Sale) => s.customerId === customerId && !s.isMistake)
+      .reduce((sum: number, s: Sale) => sum + s.totalAmount, 0);
   };
 
-  const sortedAndFilteredCustomers = useMemo(() => {
-    // 1. Filter
-    const filtered = (data.customers || []).filter(c => 
+  const sortedAndFilteredCustomers = useMemo<Customer[]>(() => {
+    const filteredList = (data.customers || []).filter((c: Customer) => 
       c.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
       c.phone.includes(searchTerm)
     );
 
-    // 2. Sort
-    return [...filtered].sort((a, b) => {
+    return [...filteredList].sort((a, b) => {
       let comparison = 0;
       switch (sortKey) {
         case 'name':
@@ -91,66 +126,43 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
     }
   };
 
-  const summaryData = useMemo(() => {
-    const now = new Date();
-    const todayStr = now.toISOString().split('T')[0];
-    const currentMonthStr = todayStr.substring(0, 7);
-    const currentYearStr = todayStr.substring(0, 4);
+  const settlementGroups = useMemo((): Record<string, Sale[]> => {
+    if (!viewCustomer) return {};
+    const settledSales = (data.sales || []).filter(s => 
+      s.customerId === viewCustomer.id && 
+      !s.isMistake && 
+      s.paidDate && 
+      s.originalPaymentMethod === 'Pending'
+    );
     
-    const getWeekStart = () => {
-      const d = new Date();
-      const day = d.getDay();
-      const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-      return new Date(d.setDate(diff)).toISOString().split('T')[0];
-    };
-    const weekStartStr = getWeekStart();
-
-    const validSales = (data.sales || []).filter(s => !s.isMistake);
-    let filtered;
-    
-    if (summaryPeriod === 'week') {
-      filtered = validSales.filter(s => s.date >= weekStartStr);
-    } else if (summaryPeriod === 'month') {
-      filtered = validSales.filter(s => s.date.startsWith(currentMonthStr));
-    } else {
-      filtered = validSales.filter(s => s.date.startsWith(currentYearStr));
-    }
-
-    const total = filtered.reduce((sum, s) => sum + s.totalAmount, 0);
-    return { total, count: filtered.length, items: filtered };
-  }, [data.sales, summaryPeriod]);
-
-  const globalCustomerSummary = useMemo(() => {
-    return (data.customers || []).map(c => {
-      const totalSales = getCustomerRevenue(c.id);
-      return {
-        ...c,
-        totalSalesRevenue: totalSales
-      };
-    }).sort((a, b) => b.totalSalesRevenue - a.totalSalesRevenue);
-  }, [data.customers, data.sales]);
-
-  const customerSales = useMemo(() => {
-    if (!viewCustomer) return [];
-    let filtered = (data.sales || []).filter(s => s.customerId === viewCustomer.id && !s.isMistake);
-    if (indivPrintMode === 'pending_only') {
-      filtered = filtered.filter(s => s.paymentMethod === 'Pending');
-    }
-    return filtered.sort((a, b) => b.date.localeCompare(a.date));
-  }, [data.sales, viewCustomer, indivPrintMode]);
+    const groups: Record<string, Sale[]> = {};
+    settledSales.forEach(s => {
+      const d = s.paidDate!;
+      if (!groups[d]) groups[d] = [];
+      groups[d].push(s);
+    });
+    return groups;
+  }, [data.sales, viewCustomer]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const customerData = {
+      name: formData.name,
+      phone: formData.phone,
+      email: formData.email,
+      address: formData.address,
+      gst: formData.gst
+    };
+
     if (editingCustomer) {
       updateData(prev => ({
         ...prev,
-        customers: prev.customers.map(c => c.id === editingCustomer.id ? { ...c, ...formData } : c),
-        sales: prev.sales.map(s => s.customerId === editingCustomer.id ? { ...s, customerName: formData.name } : s)
+        customers: prev.customers.map(c => c.id === editingCustomer.id ? { ...c, ...customerData } : c)
       }));
     } else {
       const newCustomer: Customer = {
         id: crypto.randomUUID(),
-        ...formData,
+        ...customerData,
         createdAt: new Date().toISOString(),
         pendingBalance: 0
       };
@@ -175,7 +187,7 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
       
       const pendingSales = updatedSales
         .filter(s => s.customerId === viewCustomer.id && s.paymentMethod === 'Pending')
-        .sort((a, b) => a.date.localeCompare(b.date));
+        .sort((a, b) => a.date.localeCompare(b.date)); // FIFO Orderly clearance
 
       for (let sale of pendingSales) {
         if (remainingPayment <= 0) break;
@@ -185,7 +197,8 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
           if (saleIdx !== -1) {
             updatedSales[saleIdx] = { 
               ...updatedSales[saleIdx], 
-              paymentMethod: 'Cash', 
+              paymentMethod: settlementMethod, 
+              originalPaymentMethod: 'Pending', // Mark as settled pending
               paidDate: paymentDate 
             };
           }
@@ -208,6 +221,12 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
     alert('Payment settlement complete.');
   };
 
+  const closeForm = () => {
+    setShowForm(false);
+    setEditingCustomer(null);
+    setFormData({ name: '', phone: '', email: '', address: '', gst: '' });
+  };
+
   const startEdit = (customer: Customer) => {
     setEditingCustomer(customer);
     setFormData({
@@ -220,11 +239,51 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
     setShowForm(true);
   };
 
-  const handleQuickPrint = (customer: Customer, mode: IndividualPrintMode = 'full', size: PrintSize = 'A4') => {
-    setIndivPrintMode(mode);
-    setPrintSize(size);
-    setIndivIncludeDues(true);
+  const deleteCustomer = (id: string) => {
+    if (!confirm('Are you sure you want to move this customer to the recycle bin?')) return;
+    updateData(prev => {
+      const customer = prev.customers.find(c => c.id === id);
+      if (!customer) return prev;
+      return {
+        ...prev,
+        customers: prev.customers.filter(c => c.id !== id),
+        recycleBin: {
+          ...prev.recycleBin,
+          customers: [...prev.recycleBin.customers, { ...customer, deletedAt: new Date().toISOString() }]
+        }
+      };
+    });
+  };
+
+  const customerSales = useMemo(() => {
+    if (!viewCustomer) return [];
+    let filtered = (data.sales || []).filter(s => s.customerId === viewCustomer.id && !s.isMistake);
+    
+    if (indivPrintMode === 'pending_only') {
+      filtered = filtered.filter(s => s.paymentMethod === 'Pending');
+    } else if (indivPrintMode === 'settlements' && selectedSettlementDate) {
+      filtered = filtered.filter(s => s.paidDate === selectedSettlementDate && s.originalPaymentMethod === 'Pending');
+    } else if (indivPrintMode === 'weekly') {
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      const sevenDaysAgoStr = sevenDaysAgo.toISOString().split('T')[0];
+      filtered = filtered.filter(s => s.date >= sevenDaysAgoStr);
+    }
+
+    return filtered.sort((a, b) => b.date.localeCompare(a.date));
+  }, [data.sales, viewCustomer, indivPrintMode, selectedSettlementDate]);
+
+  const handleQuickPrint = (customer: Customer, mode: IndividualPrintMode) => {
     setViewCustomer(customer);
+    setIndivPrintMode(mode);
+    setTimeout(() => {
+      window.print();
+    }, 500);
+  };
+
+  const handleSettlementPrint = (date: string) => {
+    setSelectedSettlementDate(date);
+    setIndivPrintMode('settlements');
     setTimeout(() => {
       window.print();
     }, 500);
@@ -238,32 +297,14 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
     }, 500);
   };
 
-  const closeForm = () => {
-    setShowForm(false);
-    setEditingCustomer(null);
-    setFormData({ name: '', phone: '', email: '', address: '', gst: '' });
-  };
+  const globalCustomerSummary = useMemo<(Customer & { totalSalesRevenue: number })[]>(() => {
+    return sortedAndFilteredCustomers.map(c => ({
+      ...c,
+      totalSalesRevenue: getCustomerRevenue(c.id)
+    }));
+  }, [sortedAndFilteredCustomers, data.sales]);
 
-  const deleteCustomer = (id: string) => {
-    if (!isAdmin) {
-      alert("Only admins can delete customers.");
-      return;
-    }
-    const customerToDelete = data.customers.find(c => c.id === id);
-    if (!customerToDelete) return;
-
-    if (window.confirm(`MOVE TO TRASH: Are you sure you want to delete "${customerToDelete.name}"?`)) {
-      updateData(prev => ({
-        ...prev,
-        customers: prev.customers.filter(c => c.id !== id),
-        recycleBin: {
-          ...prev.recycleBin,
-          customers: [...prev.recycleBin.customers, { ...customerToDelete, deletedAt: new Date().toISOString() }]
-        },
-        sales: prev.sales.map(s => s.customerId === id ? { ...s, customerId: undefined } : s)
-      }));
-    }
-  };
+  const currentSummary = useMemo(() => summaryData(data.sales, summaryPeriod), [data.sales, summaryPeriod]);
 
   const SortButton: React.FC<{ label: string; keyName: CustomerSortKey }> = ({ label, keyName }) => (
     <button 
@@ -292,14 +333,14 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
     return (
       <div className="space-y-6 animate-in fade-in duration-300">
         <div className="no-print flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-[32px] border border-slate-200 shadow-sm">
-          <button onClick={() => setViewCustomer(null)} className="text-indigo-600 font-bold flex items-center space-x-2 bg-indigo-50 px-4 py-2 rounded-xl hover:bg-indigo-100 transition-colors">
+          <button onClick={() => { setViewCustomer(null); setIndivPrintMode('full'); setSelectedSettlementDate(null); }} className="text-indigo-600 font-bold flex items-center space-x-2 bg-indigo-50 px-4 py-2 rounded-xl hover:bg-indigo-100 transition-colors">
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
             <span>Back to List</span>
           </button>
           
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200">
-              {(['full', 'sales_only', 'pending_only', 'summary'] as IndividualPrintMode[]).map(m => (
+              {(['full', 'pending_only', 'weekly', 'summary', 'settlements'] as IndividualPrintMode[]).map(m => (
                 <button 
                   key={m}
                   onClick={() => setIndivPrintMode(m)} 
@@ -319,18 +360,11 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
             </select>
 
             <button 
-              onClick={() => setIndivIncludeDues(!indivIncludeDues)}
-              className={`px-4 py-1.5 rounded-xl text-[10px] font-black uppercase border transition-all ${indivIncludeDues ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-slate-50 border-slate-200 text-slate-400'}`}
-            >
-              {indivIncludeDues ? '✓ With Net Dues' : 'Hide Net Dues'}
-            </button>
-
-            <button 
               onClick={() => window.print()}
               className="flex items-center space-x-2 bg-slate-900 text-white px-6 py-2 rounded-xl font-bold hover:bg-black transition-all active:scale-95 shadow-lg"
             >
               <IconPrint />
-              <span>Print</span>
+              <span>Print View</span>
             </button>
           </div>
         </div>
@@ -344,27 +378,28 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
                  <p className="text-[10px] opacity-70 italic">{data.business?.tagline}</p>
                  <p className="text-[10px] font-bold mt-2">{data.business?.address} | Ph: {data.business?.phone}</p>
                  <h2 className={`${isThermal ? 'text-sm' : 'text-lg'} font-black mt-4 border-y border-black py-1 uppercase tracking-widest`}>
-                  {indivPrintMode === 'sales_only' ? 'Sales Registry' : 
-                   indivPrintMode === 'pending_only' ? 'Pending Dues' : 
-                   indivPrintMode === 'summary' ? 'Account Summary' : 'Account Statement'}
+                  {indivPrintMode === 'pending_only' ? 'Statement of Pending Dues' : 
+                   indivPrintMode === 'settlements' ? `Settlement Report - ${formatDate(selectedSettlementDate || '')}` : 
+                   indivPrintMode === 'summary' ? 'Account Overview' : 
+                   indivPrintMode === 'weekly' ? 'Weekly Statement (Last 7 Days)' : 'Client Ledger Report'}
                  </h2>
               </div>
 
               <div className="relative z-10 print:w-full print:text-left">
-                <p className="hidden print:block text-[8px] font-black uppercase opacity-50">Customer Details</p>
+                <p className="hidden print:block text-[8px] font-black uppercase opacity-50">Customer Account</p>
                 <h2 className={`${isThermal ? 'text-xl' : 'text-3xl'} font-black mb-2 uppercase`}>{viewCustomer.name}</h2>
                 <div className="flex flex-wrap gap-4 text-sm font-medium opacity-80 print:text-[10px] print:opacity-100">
                   <span>📞 {viewCustomer.phone}</span>
-                  {viewCustomer.gst && <span className="px-2 py-0.5 bg-white/10 rounded text-[10px] uppercase print:border print:border-black print:text-black font-bold">GST: {viewCustomer.gst}</span>}
+                  {viewCustomer.gst && <span className="px-2 py-0.5 bg-white/10 rounded text-[10px] uppercase print:border print:border-black print:text-black font-bold font-mono">GST: {viewCustomer.gst}</span>}
                 </div>
               </div>
               
               {(indivIncludeDues || !window.matchMedia('print').matches) && (
                 <div className={`text-right relative z-10 flex flex-col justify-center print:w-full print:text-center print:mt-4 ${!indivIncludeDues ? 'print:hidden' : ''}`}>
                   <div className="bg-white/10 p-5 rounded-2xl border border-white/10 backdrop-blur-sm print:bg-slate-50 print:border-black print:text-black">
-                      <p className="text-[10px] uppercase font-black opacity-50 tracking-[0.2em] mb-1 print:opacity-100">Net Outstanding</p>
+                      <p className="text-[10px] uppercase font-black opacity-50 tracking-[0.2em] mb-1 print:opacity-100">Current Outstanding</p>
                       <p className={`${isThermal ? 'text-3xl' : 'text-5xl'} font-black ${viewCustomer.pendingBalance > 0 ? 'text-red-400 print:text-black' : 'text-emerald-400 print:text-black'}`}>₹{viewCustomer.pendingBalance.toLocaleString()}</p>
-                      <p className="hidden print:block text-[8px] font-bold mt-2">Statement Date: {new Date().toLocaleDateString()}</p>
+                      <p className="hidden print:block text-[8px] font-bold mt-2">Print Date: {new Date().toLocaleDateString('en-GB')}</p>
                   </div>
                 </div>
               )}
@@ -373,18 +408,53 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
             <div className={`grid grid-cols-1 ${isThermal ? '' : 'lg:grid-cols-3'} gap-8 mt-8 p-8 pt-0 print:p-2`}>
                 <div className={`lg:col-span-1 space-y-6 no-print`}>
                     <div className="bg-slate-50 rounded-3xl p-8 border border-slate-100 shadow-sm">
-                        <h4 className="text-sm font-black text-slate-800 uppercase tracking-widest mb-6 border-b border-slate-200 pb-4">Quick Collection</h4>
+                        <h4 className="text-sm font-black text-slate-800 uppercase tracking-widest mb-6 border-b border-slate-200 pb-4">Record Collection</h4>
                         <form onSubmit={handleRecordPayment} className="space-y-4">
                             <div>
                                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Collection Date</label>
                                 <input type="date" required value={paymentDate} onChange={e => setPaymentDate(e.target.value)} className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none font-bold" />
                             </div>
                             <div>
+                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Payment Mode</label>
+                                <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200">
+                                    {(['Cash', 'UPI'] as PaymentMethod[]).map(m => (
+                                        <button 
+                                            key={m}
+                                            type="button"
+                                            onClick={() => setSettlementMethod(m)}
+                                            className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${settlementMethod === m ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400'}`}
+                                        >
+                                            {m}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                            <div>
                                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Collected Amount (₹)</label>
                                 <input type="number" required value={paymentAmount} onChange={e => setPaymentAmount(e.target.value)} className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none font-black text-lg" placeholder="0.00" />
                             </div>
-                            <button type="submit" className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl shadow-lg transition-all active:scale-95 text-xs uppercase tracking-widest">Update Balance</button>
+                            <button type="submit" className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl shadow-lg transition-all active:scale-95 text-xs uppercase tracking-widest">Process Orderly Settlement</button>
                         </form>
+                    </div>
+
+                    <div className="bg-white rounded-3xl p-8 border border-slate-100 shadow-sm overflow-hidden">
+                        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6">Settlement History</h4>
+                        <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2">
+                           {(Object.entries(settlementGroups) as [string, Sale[]][]).sort(([a], [b]) => b.localeCompare(a)).map(([date, sales]) => {
+                             const total = sales.reduce((sum, s) => sum + s.totalAmount, 0);
+                             return (
+                               <div key={date} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 group">
+                                  <div className="flex justify-between items-center mb-1">
+                                     <p className="text-[10px] font-black text-slate-800 uppercase">{formatDate(date)}</p>
+                                     <button onClick={() => handleSettlementPrint(date)} className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"><IconPrint className="w-3 h-3"/></button>
+                                  </div>
+                                  <p className="text-sm font-black text-indigo-600">₹{total.toLocaleString()}</p>
+                                  <p className="text-[8px] font-bold text-slate-400 uppercase">{sales.length} Bills Cleared</p>
+                               </div>
+                             );
+                           })}
+                           {Object.keys(settlementGroups).length === 0 && <p className="text-center py-10 text-slate-300 font-bold uppercase text-[10px]">No settlements recorded</p>}
+                        </div>
                     </div>
                 </div>
 
@@ -393,8 +463,8 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
                       <>
                         <div className="px-8 py-4 bg-slate-50 border-b flex justify-between items-center print:bg-white print:border-black print:px-2">
                             <h4 className="font-black text-slate-800 uppercase text-xs tracking-widest print:text-[10px]">
-                              {indivPrintMode === 'sales_only' ? 'Transaction History' : 
-                               indivPrintMode === 'pending_only' ? 'Unpaid Items' : 'Ledger Entries'}
+                              {indivPrintMode === 'pending_only' ? 'Unpaid Invoice Registry' : 
+                               indivPrintMode === 'settlements' ? `Bills Settled on ${formatDate(selectedSettlementDate || '')}` : 'Ledger Entries'}
                             </h4>
                         </div>
                         <div className="overflow-x-auto">
@@ -403,16 +473,16 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
                                 <tr>
                                 <th className="px-8 py-4 print:px-2">Date</th>
                                 <th className="px-8 py-4 print:px-2">Invoice</th>
-                                {!isThermal && <th className="px-8 py-4 print:px-2">Mode</th>}
+                                {!isThermal && <th className="px-8 py-4 print:px-2">Status</th>}
                                 <th className="px-8 py-4 text-right print:px-2">Amount</th>
-                                <th className="px-8 py-4 text-center no-print">View</th>
+                                <th className="px-8 py-4 text-center no-print">Action</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100 print:divide-black">
                                 {customerSales.map(s => (
                                 <tr key={s.id} className="hover:bg-slate-50 transition-colors">
                                     <td className="px-8 py-4 font-bold text-slate-600 print:text-black print:px-2">
-                                      {new Date(s.date).toLocaleDateString()}
+                                      {formatDate(s.date)}
                                     </td>
                                     <td className="px-8 py-4 font-black text-indigo-600 tracking-tighter print:text-black print:px-2">#{s.invoiceNumber.split('-')[1]}</td>
                                     {!isThermal && (
@@ -420,7 +490,7 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
                                           <span className={`text-[10px] font-black uppercase px-2 py-1 rounded border ${
                                               s.paymentMethod === 'Pending' ? 'bg-orange-50 text-orange-600 border-orange-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'
                                           } print:border-none`}>
-                                              {s.paymentMethod}
+                                              {s.originalPaymentMethod === 'Pending' && s.paymentMethod !== 'Pending' ? `Settled (${s.paymentMethod})` : s.paymentMethod}
                                           </span>
                                       </td>
                                     )}
@@ -438,16 +508,30 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
                                   </tr>
                                 )}
                             </tbody>
-                            {indivIncludeDues && (
+                            {(indivIncludeDues || indivPrintMode === 'settlements') && (
                               <tfoot>
                                 <tr className="bg-slate-900 text-white print:bg-white print:text-black print:border-t-2 print:border-black">
-                                  <td colSpan={isThermal ? 2 : 3} className="px-8 py-4 font-black uppercase text-right tracking-widest print:px-2 print:text-[12px]">Net Balanced Due</td>
-                                  <td className="px-8 py-4 text-right font-black text-xl print:px-2 print:text-[14px]">₹{viewCustomer.pendingBalance.toLocaleString()}</td>
+                                  <td colSpan={isThermal ? 2 : 3} className="px-8 py-4 font-black uppercase text-right tracking-widest print:px-2 print:text-[12px]">
+                                    {indivPrintMode === 'settlements' ? 'Total Settlement Value' : 'Net Account Dues'}
+                                  </td>
+                                  <td className="px-8 py-4 text-right font-black text-xl print:px-2 print:text-[14px]">
+                                    ₹{(indivPrintMode === 'settlements' ? customerSales.reduce((sum, s) => sum + s.totalAmount, 0) : viewCustomer.pendingBalance).toLocaleString()}
+                                  </td>
                                   <td className="no-print"></td>
                                 </tr>
                               </tfoot>
                             )}
                             </table>
+                        </div>
+                        <div className="hidden print:flex justify-between items-end mt-16 px-4">
+                           <div className="text-center">
+                              <div className="w-32 border-t-2 border-black mb-1"></div>
+                              <p className="text-[8px] font-black uppercase">Client Sign</p>
+                           </div>
+                           <div className="text-center">
+                              <div className="w-32 border-t-2 border-black mb-1"></div>
+                              <p className="text-[8px] font-black uppercase">Authorized Cashier</p>
+                           </div>
                         </div>
                       </>
                     ) : (
@@ -471,11 +555,8 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
                            </div>
                            <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100">
                               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Last Interaction</p>
-                              <p className="text-lg font-black text-slate-800">{customerSales[0] ? new Date(customerSales[0].date).toLocaleDateString() : 'Never'}</p>
+                              <p className="text-lg font-black text-slate-800">{customerSales[0] ? formatDate(customerSales[0].date) : 'Never'}</p>
                            </div>
-                        </div>
-                        <div className="pt-8 border-t border-slate-100 print:pt-4">
-                           <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest text-center">Verified by A M Food Processing Suite</p>
                         </div>
                       </div>
                     )}
@@ -536,13 +617,13 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
       {/* Global Sales Insight Bar */}
       {showSummary && (
         <div className="bg-indigo-900 text-white p-8 rounded-[40px] shadow-2xl border border-indigo-800 animate-in slide-in-from-top-4 duration-300 relative overflow-hidden no-print">
-           <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500 rounded-full blur-[100px] opacity-20 -mr-32 -mt-32"></div>
+           <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-50 rounded-full blur-[100px] opacity-20 -mr-32 -mt-32"></div>
            <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-8">
               <div>
                  <p className="text-indigo-300 font-black uppercase text-[10px] tracking-[0.4em] mb-2">Aggregate Revenue Report</p>
                  <div className="flex items-baseline space-x-4">
-                    <h3 className="text-5xl font-black tracking-tighter">₹{summaryData.total.toLocaleString()}</h3>
-                    <span className="text-indigo-300 font-bold uppercase text-xs">{summaryData.count} Transactions</span>
+                    <h3 className="text-5xl font-black tracking-tighter">₹{currentSummary.total.toLocaleString()}</h3>
+                    <span className="text-indigo-300 font-bold uppercase text-xs">{currentSummary.count} Transactions</span>
                  </div>
               </div>
               <div className="flex flex-col items-end gap-4">
@@ -571,6 +652,9 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
               <div className="flex justify-between items-start mb-4">
                 <div className="w-14 h-14 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-black text-2xl border border-indigo-100">{customer.name.charAt(0)}</div>
                 <div className="flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button onClick={() => handleQuickPrint(customer, 'weekly')} className="p-2 text-indigo-500 hover:text-indigo-700 bg-indigo-50 rounded-xl" title="Print Weekly Statement">
+                    <IconPrint className="w-5 h-5" />
+                  </button>
                   <button onClick={() => handleQuickPrint(customer, 'pending_only')} className="p-2 text-rose-500 hover:text-rose-700 bg-rose-50 rounded-xl" title="Print Dues Statement">
                     <IconPrint className="w-5 h-5" />
                   </button>
@@ -592,7 +676,7 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
               
               <div className="flex justify-between items-center mb-6">
                 <p className="text-[10px] text-slate-400 font-bold uppercase">Total Volume: <span className="text-indigo-600 font-black">₹{revenue.toLocaleString()}</span></p>
-                <p className="text-[8px] text-slate-300 font-bold uppercase">Since {new Date(customer.createdAt).toLocaleDateString()}</p>
+                <p className="text-[8px] text-slate-300 font-bold uppercase">Since {formatDate(customer.createdAt)}</p>
               </div>
               
               <div className="flex items-center justify-between pt-5 border-t border-slate-100">
@@ -614,7 +698,7 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
               {data.business?.logo && <img src={data.business.logo} alt="Logo" className="w-32 mx-auto mb-4 object-contain" />}
               <h1 className="text-4xl font-black uppercase">{data.business?.name}</h1>
               <h2 className="text-xl font-bold uppercase tracking-[0.2em] mt-2">Customer Sales & Dues Summary</h2>
-              <p className="text-[10px] mt-2 font-bold italic">Generated on: {new Date().toLocaleString()}</p>
+              <p className="text-[10px] mt-2 font-bold italic">Generated on: {new Date().toLocaleString('en-GB')}</p>
            </div>
 
            <table className="w-full border-collapse">
@@ -639,8 +723,8 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
               <tfoot>
                 <tr className="bg-gray-50 border-t-2 border-black font-black">
                    <td colSpan={2} className="p-3 text-right uppercase text-[10px]">Grand Consolidated Totals</td>
-                   <td className="p-3 text-right text-sm">₹{globalCustomerSummary.reduce((sum, c) => sum + c.totalSalesRevenue, 0).toLocaleString()}</td>
-                   <td className="p-3 text-right text-sm">₹{globalCustomerSummary.reduce((sum, c) => sum + c.pendingBalance, 0).toLocaleString()}</td>
+                   <td className="p-3 text-right text-sm">₹{globalCustomerSummary.reduce((sum, c) => sum + (c.totalSalesRevenue || 0), 0).toLocaleString()}</td>
+                   <td className="p-3 text-right text-sm">₹{globalCustomerSummary.reduce((sum, c) => sum + (c.pendingBalance || 0), 0).toLocaleString()}</td>
                 </tr>
               </tfoot>
            </table>
@@ -680,7 +764,7 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
                 </div>
                 <div>
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">GSTIN</label>
-                  <input type="text" value={formData.gst} onChange={e => setFormData({ ...formData, gst: e.target.value })} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none font-bold uppercase" />
+                  <input type="text" value={formData.gst} onChange={e => setFormData({ ...formData, gst: e.target.value })} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none font-bold uppercase font-mono" />
                 </div>
                 <div className="col-span-2">
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Address</label>

@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { AppData, Expense } from '../types';
 import { IconAdd, IconPrint } from './Icons';
@@ -7,6 +6,11 @@ interface ExpensesProps {
   data: AppData;
   updateData: (updater: (prev: AppData) => AppData) => void;
 }
+
+const formatDate = (dateStr: string) => {
+  if (!dateStr) return '';
+  return dateStr.split('-').reverse().join('/');
+};
 
 const Expenses: React.FC<ExpensesProps> = ({ data, updateData }) => {
   const [showForm, setShowForm] = useState(false);
@@ -19,7 +23,9 @@ const Expenses: React.FC<ExpensesProps> = ({ data, updateData }) => {
     dueDate: new Date().toISOString().split('T')[0],
     category: 'Materials',
     description: '',
-    amount: ''
+    amount: '',
+    paidAmount: '',
+    paymentMethod: 'Cash'
   });
 
   const resetForm = () => {
@@ -28,7 +34,9 @@ const Expenses: React.FC<ExpensesProps> = ({ data, updateData }) => {
       dueDate: new Date().toISOString().split('T')[0],
       category: 'Materials',
       description: '',
-      amount: ''
+      amount: '',
+      paidAmount: '',
+      paymentMethod: 'Cash'
     });
     setEditingExpense(null);
     setShowForm(false);
@@ -41,7 +49,9 @@ const Expenses: React.FC<ExpensesProps> = ({ data, updateData }) => {
       dueDate: expense.dueDate || expense.date,
       category: expense.category,
       description: expense.description,
-      amount: expense.amount.toString()
+      amount: expense.amount.toString(),
+      paidAmount: expense.paidAmount?.toString() || '',
+      paymentMethod: expense.paymentMethod || 'Cash'
     });
     setShowForm(true);
   };
@@ -69,11 +79,19 @@ const Expenses: React.FC<ExpensesProps> = ({ data, updateData }) => {
       ['Expense Report - A M Food Processing'],
       ['Export Date', new Date().toLocaleString()],
       [''],
-      ['Date', 'Due Date', 'Category', 'Description', 'Amount (₹)']
+      ['Date', 'Category', 'Description', 'Total Amount', 'Paid', 'Balance', 'Method']
     ];
 
     data.expenses.forEach(e => {
-      rows.push([e.date, e.dueDate || 'N/A', e.category, e.description, e.amount.toString()]);
+      rows.push([
+        formatDate(e.date), 
+        e.category, 
+        e.description, 
+        e.amount.toString(),
+        (e.paidAmount || 0).toString(),
+        (e.balance || 0).toString(),
+        e.paymentMethod || 'Cash'
+      ]);
     });
 
     const csvContent = "data:text/csv;charset=utf-8," + rows.map(r => r.map(c => `"${c}"`).join(",")).join("\n");
@@ -87,12 +105,18 @@ const Expenses: React.FC<ExpensesProps> = ({ data, updateData }) => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const total = Number(formData.amount) || 0;
+    const paid = Number(formData.paidAmount) || 0;
+    
     const expenseData = {
       date: formData.date,
       dueDate: formData.dueDate,
       category: formData.category,
       description: formData.description,
-      amount: Number(formData.amount) || 0
+      amount: total,
+      paidAmount: paid,
+      balance: Math.max(0, total - paid),
+      paymentMethod: formData.paymentMethod
     };
 
     if (editingExpense) {
@@ -112,6 +136,22 @@ const Expenses: React.FC<ExpensesProps> = ({ data, updateData }) => {
     }
 
     resetForm();
+  };
+
+  const deleteExpense = (id: string) => {
+    if (!confirm('Move this expense to Recycle Bin?')) return;
+    updateData(prev => {
+        const expense = prev.expenses.find(e => e.id === id);
+        if (!expense) return prev;
+        return {
+            ...prev,
+            expenses: prev.expenses.filter(e => e.id !== id),
+            recycleBin: {
+                ...prev.recycleBin,
+                expenses: [...prev.recycleBin.expenses, { ...expense, deletedAt: new Date().toISOString() }]
+            }
+        };
+    });
   };
 
   const totalExpenseAmount = data.expenses.reduce((sum, e) => sum + e.amount, 0);
@@ -154,13 +194,15 @@ const Expenses: React.FC<ExpensesProps> = ({ data, updateData }) => {
                 <input type="date" required className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none bg-slate-50 font-bold" value={formData.date} onChange={e => setFormData({ ...formData, date: e.target.value })} />
               </div>
               <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Payment Due Date</label>
-                <input type="date" required className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none bg-slate-50 font-bold" value={formData.dueDate} onChange={e => setFormData({ ...formData, dueDate: e.target.value })} />
-              </div>
-              <div>
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Operational Category</label>
                 <select className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none bg-slate-50 font-bold" value={formData.category} onChange={e => setFormData({ ...formData, category: e.target.value })}>
                   <option>Materials</option><option>Rent</option><option>Labor</option><option>Electricity</option><option>Packaging</option><option>Transportation</option><option>Misc</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Payment Method</label>
+                <select className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none bg-slate-50 font-bold" value={formData.paymentMethod} onChange={e => setFormData({ ...formData, paymentMethod: e.target.value })}>
+                  <option>Cash</option><option>UPI</option><option>Bank Transfer</option><option>Cheque</option><option>Credit</option>
                 </select>
               </div>
             </div>
@@ -168,9 +210,15 @@ const Expenses: React.FC<ExpensesProps> = ({ data, updateData }) => {
               <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Description</label>
               <input type="text" required placeholder="Describe the transaction..." className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none bg-slate-50 font-bold" value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} />
             </div>
-            <div>
-              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Payment Amount (₹)</label>
-              <input type="number" required placeholder="0.00" className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none bg-slate-50 font-black text-lg" value={formData.amount} onChange={e => setFormData({ ...formData, amount: e.target.value })} />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Total Amount (₹)</label>
+                    <input type="number" required placeholder="0.00" className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none bg-slate-50 font-black text-lg" value={formData.amount} onChange={e => setFormData({ ...formData, amount: e.target.value })} />
+                </div>
+                <div>
+                    <label className="block text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-2">Paid by Me (₹)</label>
+                    <input type="number" placeholder="0.00" className="w-full px-4 py-3 border-2 border-emerald-100 rounded-xl outline-none bg-emerald-50/50 font-black text-lg text-emerald-700" value={formData.paidAmount} onChange={e => setFormData({ ...formData, paidAmount: e.target.value })} />
+                </div>
             </div>
             <div className="flex justify-end space-x-3 pt-6 border-t border-slate-100">
               <button type="button" onClick={resetForm} className="px-8 py-3 text-slate-500 font-bold uppercase text-[10px] tracking-widest">Discard</button>
@@ -190,28 +238,35 @@ const Expenses: React.FC<ExpensesProps> = ({ data, updateData }) => {
                 <th className="px-8 py-5">Date</th>
                 <th className="px-8 py-5">Category</th>
                 <th className="px-8 py-5">Description</th>
+                <th className="px-8 py-5">Method</th>
                 <th className="px-8 py-5 text-right">Amount (₹)</th>
+                <th className="px-8 py-5 text-right">Balance</th>
                 <th className="px-8 py-5 text-center no-print">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {data.expenses.length > 0 ? data.expenses.map((expense) => (
                 <tr key={expense.id} className="hover:bg-slate-50 transition-colors group">
-                  <td className="px-8 py-5 text-xs font-bold text-slate-500">{new Date(expense.date).toLocaleDateString()}</td>
+                  <td className="px-8 py-5 text-xs font-bold text-slate-500">{formatDate(expense.date)}</td>
                   <td className="px-8 py-5 text-sm">
                     <span className="px-2 py-1 bg-red-50 rounded-md text-[9px] font-black text-red-600 uppercase tracking-tighter border border-red-100">{expense.category}</span>
                   </td>
                   <td className="px-8 py-5 text-sm font-bold text-slate-700">{expense.description}</td>
+                  <td className="px-8 py-5 text-xs font-bold text-slate-500 uppercase">{expense.paymentMethod || 'Cash'}</td>
                   <td className="px-8 py-5 text-sm font-black text-red-600 text-right">₹{expense.amount.toLocaleString()}</td>
+                  <td className={`px-8 py-5 text-xs font-black text-right ${expense.balance && expense.balance > 0 ? 'text-amber-500' : 'text-emerald-500'}`}>
+                    {expense.balance && expense.balance > 0 ? `Due: ₹${expense.balance.toLocaleString()}` : 'Cleared'}
+                  </td>
                   <td className="px-8 py-5 text-center no-print">
                      <div className="flex justify-center space-x-1">
                         <button onClick={() => handleEdit(expense)} className="p-2 text-slate-400 hover:text-indigo-600 bg-slate-50 rounded-xl transition-all" title="Edit"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg></button>
+                        <button onClick={() => deleteExpense(expense.id)} className="p-2 text-slate-400 hover:text-rose-600 bg-slate-50 rounded-xl transition-all" title="Delete"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg></button>
                         <button onClick={() => handlePrintSingle(expense)} className="p-2 text-slate-400 hover:text-slate-900 bg-slate-50 rounded-xl transition-all" title="Print"><IconPrint className="w-4 h-4" /></button>
                      </div>
                   </td>
                 </tr>
               )) : (
-                <tr><td colSpan={5} className="px-8 py-20 text-center text-slate-300 font-bold uppercase tracking-widest text-xs">No records in registry</td></tr>
+                <tr><td colSpan={7} className="px-8 py-20 text-center text-slate-300 font-bold uppercase tracking-widest text-xs">No records in registry</td></tr>
               )}
             </tbody>
           </table>
@@ -230,15 +285,19 @@ const Expenses: React.FC<ExpensesProps> = ({ data, updateData }) => {
               </div>
               <div className="flex justify-between mb-8 text-sm">
                  <div><strong>Category:</strong> {activePrintExpense.category}</div>
-                 <div><strong>Date:</strong> {activePrintExpense.date}</div>
+                 <div><strong>Date:</strong> {formatDate(activePrintExpense.date)}</div>
               </div>
               <div className="mb-12">
                  <p className="text-xs uppercase text-slate-500 font-black mb-1">Transaction Details</p>
                  <p className="text-lg font-bold">{activePrintExpense.description}</p>
+                 <p className="text-xs mt-1">Paid via: {activePrintExpense.paymentMethod || 'Cash'}</p>
               </div>
               <div className="text-right border-t-2 border-black pt-4">
-                 <p className="text-xs font-black uppercase">Net Amount Paid</p>
+                 <p className="text-xs font-black uppercase">Total Amount</p>
                  <p className="text-4xl font-black">₹{activePrintExpense.amount.toLocaleString()}</p>
+                 {activePrintExpense.balance && activePrintExpense.balance > 0 && (
+                     <p className="text-xs font-bold mt-1">Outstanding Balance: ₹{activePrintExpense.balance.toLocaleString()}</p>
+                 )}
               </div>
               <div className="mt-24 flex justify-between px-4">
                  <div className="border-t border-black w-32 pt-2 text-[10px] text-center font-bold">MANAGER SIGN</div>
@@ -254,7 +313,7 @@ const Expenses: React.FC<ExpensesProps> = ({ data, updateData }) => {
               {data.business?.logo && <img src={data.business.logo} alt="Logo" className="w-24 mx-auto mb-4 object-contain" />}
               <h1 className="text-3xl font-black uppercase">{data.business?.name}</h1>
               <h2 className="text-lg font-bold uppercase tracking-widest">Complete Expense Ledger</h2>
-              <p className="text-xs mt-2">Generated on: {new Date().toLocaleString()}</p>
+              <p className="text-xs mt-2">Generated on: {new Date().toLocaleString('en-GB')}</p>
            </div>
            <table className="w-full border-collapse">
               <thead>
@@ -268,7 +327,7 @@ const Expenses: React.FC<ExpensesProps> = ({ data, updateData }) => {
               <tbody>
                  {data.expenses.map((e, idx) => (
                     <tr key={idx} className="border-b border-gray-300">
-                       <td className="p-2 text-xs">{new Date(e.date).toLocaleDateString()}</td>
+                       <td className="p-2 text-xs">{formatDate(e.date)}</td>
                        <td className="p-2 text-xs font-bold uppercase">{e.category}</td>
                        <td className="p-2 text-xs">{e.description}</td>
                        <td className="p-2 text-xs text-right font-bold">₹{e.amount.toLocaleString()}</td>

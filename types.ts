@@ -1,4 +1,3 @@
-
 export type UserRole = 'admin' | 'staff';
 
 export interface User {
@@ -18,6 +17,23 @@ export interface BusinessInfo {
   tagline: string;
 }
 
+export interface TemplateSettings {
+  applyToPrinting: boolean; // New: Master toggle for template application
+  showLogo: boolean;
+  logoSize: number; // 40 to 200
+  showSKU: boolean;
+  showRatePerUnit: boolean;
+  showDues: boolean;
+  footerText: string;
+  termsText: string;
+  brandColor: string;
+  includeSignatures: boolean;
+  fontSize: number; // 8 to 22
+  lineSpacing: number; // 0.8 to 2.5
+  compactMode: boolean; // Toggles dense packing
+  borderWeight: number; // 0 to 4
+}
+
 export interface UpiQr {
   id: string;
   name: string;
@@ -32,8 +48,9 @@ export interface PriceHistoryEntry {
 export interface Product {
   id: string;
   name: string;
+  code?: string; // SKU
   defaultRate: number;
-  wholesaleRate?: number; // Added wholesale tier
+  wholesaleRate?: number; 
   unit: string;
   currentStock?: number; 
   minThreshold?: number; 
@@ -58,8 +75,8 @@ export interface SaleItem {
   unit: string;
   rate: number;
   total: number;
-  batchNumber?: string; // Food safety tracking
-  expiryDate?: string;  // Food safety tracking
+  batchNumber?: string; 
+  expiryDate?: string;  
 }
 
 export type PaymentMethod = 'Cash' | 'UPI' | 'Pending';
@@ -78,6 +95,7 @@ export interface Sale {
   createdBy: string;
   isMistake?: boolean;
   paymentMethod: PaymentMethod;
+  originalPaymentMethod?: PaymentMethod; 
   selectedUpiQrId?: string; 
   includePreviousBalance?: boolean; 
 }
@@ -104,6 +122,9 @@ export interface Expense {
   category: string;
   description: string;
   amount: number;
+  paidAmount?: number;
+  paymentMethod?: string;
+  balance?: number;
 }
 
 export interface RecycleBin {
@@ -135,7 +156,7 @@ export interface DashboardWidget {
   width: 'full' | 'half' | 'third' | 'two-thirds';
 }
 
-export type AppTheme = 'indigo' | 'emerald' | 'rose' | 'amber' | 'slate' | 'cyan';
+export type AppTheme = 'indigo' | 'emerald' | 'rose' | 'amber' | 'slate' | 'cyan' | 'dynamic';
 
 export interface AppData {
   business: BusinessInfo | null;
@@ -152,6 +173,7 @@ export interface AppData {
   dashboardWidgets: DashboardWidget[];
   isInitialized: boolean;
   theme: AppTheme;
+  logoThemeColor?: string; 
   lastBackupDate?: string; 
   isLocalFolderConnected: boolean;
   localFolderName?: string;
@@ -163,6 +185,7 @@ export interface AppData {
   isOneDriveConnected: boolean;
   backupFolderName: string;
   autoLogoutMinutes?: number; 
+  templateSettings: TemplateSettings;
 }
 
 export enum NavigationTab {
@@ -174,6 +197,7 @@ export enum NavigationTab {
   Expenses = 'expenses',
   Invoices = 'invoices',
   Reports = 'reports',
-  AIAssistant = 'ai_assistant',
-  Settings = 'settings'
+  Settings = 'settings',
+  About = 'about',
+  AIAssistant = 'ai_assistant'
 }

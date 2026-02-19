@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo } from 'react';
 import { AppData, DashboardWidget, DashboardWidgetType } from '../types';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
@@ -7,6 +6,11 @@ interface DashboardProps {
   data: AppData;
   updateData?: (updater: (prev: AppData) => AppData) => void;
 }
+
+const formatDate = (dateStr: string) => {
+  if (!dateStr) return '';
+  return dateStr.split('-').reverse().join('/');
+};
 
 const Dashboard: React.FC<DashboardProps> = ({ data, updateData }) => {
   const [isEditing, setIsEditing] = useState(false);
@@ -122,7 +126,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, updateData }) => {
                     </div>
                     <div>
                       <p className="font-black text-sm text-slate-800 truncate max-w-[120px]">{act.label}</p>
-                      <p className="text-[10px] text-slate-400 font-bold uppercase">{new Date(act.date).toLocaleDateString()}</p>
+                      <p className="text-[10px] text-slate-400 font-bold uppercase">{formatDate(act.date)}</p>
                     </div>
                   </div>
                   <div className={`font-black text-sm ${act.type === 'sale' ? 'text-indigo-600' : 'text-rose-600'}`}>₹{act.amount.toLocaleString()}</div>
@@ -153,7 +157,7 @@ const Dashboard: React.FC<DashboardProps> = ({ data, updateData }) => {
 
     return (
       <div key={widget.id} className={`${widthClass} relative group animate-in fade-in zoom-in duration-500`}>
-        {isEditing && (
+        {isEditing && isAdmin && (
           <button onClick={() => removeWidget(widget.id)} className="absolute -top-3 -right-3 z-10 bg-rose-500 text-white p-2 rounded-full shadow-2xl hover:scale-110 transition-transform">
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
@@ -174,16 +178,18 @@ const Dashboard: React.FC<DashboardProps> = ({ data, updateData }) => {
             <p className="text-indigo-300 font-black uppercase text-[10px] tracking-[0.5em] mb-1">{greeting}, {data.currentUser?.username}</p>
             <h1 className="text-5xl font-black tracking-tight leading-none">Control <span className="text-indigo-400">Center.</span></h1>
           </div>
-          <button 
-            onClick={() => setIsEditing(!isEditing)} 
-            className={`px-8 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-2xl hover:scale-105 active:scale-95 ${isEditing ? 'bg-emerald-500 text-white' : 'bg-white text-indigo-900'}`}
-          >
-            {isEditing ? '✓ Finish Setup' : '🎨 Personalize UI'}
-          </button>
+          {isAdmin && (
+            <button 
+              onClick={() => setIsEditing(!isEditing)} 
+              className={`px-8 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-2xl hover:scale-105 active:scale-95 ${isEditing ? 'bg-emerald-500 text-white' : 'bg-white text-indigo-900'}`}
+            >
+              {isEditing ? '✓ Finish Setup' : '🎨 Personalize UI'}
+            </button>
+          )}
         </div>
       </div>
 
-      {isEditing && (
+      {isEditing && isAdmin && (
         <div className="bg-white p-12 rounded-[50px] border border-slate-100 shadow-2xl animate-in slide-in-from-top-12 duration-500">
           <h4 className="text-xs font-black text-slate-400 uppercase tracking-[0.4em] mb-10 text-center">Intelligent Insights Library</h4>
           <div className="flex flex-wrap justify-center gap-4">
@@ -216,11 +222,9 @@ const Dashboard: React.FC<DashboardProps> = ({ data, updateData }) => {
       </div>
 
       {/* Aesthetic Footer Summary */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 pb-12">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 pb-12">
          {[
            { label: 'Today Turnover', val: '₹' + todaySales.toLocaleString(), color: 'text-indigo-500' },
-           { label: 'System Wide', val: '₹' + totalSales.toLocaleString(), color: 'text-emerald-500' },
-           { label: 'Profit Ratio', val: totalSales > 0 ? ((profit/totalSales)*100).toFixed(1) + '%' : '0%', color: 'text-sky-500' },
            { label: 'Due Ratio', val: totalSales > 0 ? ((totalDues/totalSales)*100).toFixed(1) + '%' : '0%', color: 'text-amber-500' }
          ].map((stat, i) => (
            <div key={i} className="bg-white p-8 rounded-[32px] border border-slate-100 shadow-sm flex flex-col items-center justify-center text-center hover:shadow-lg transition-shadow">

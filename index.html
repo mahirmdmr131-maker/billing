@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -18,21 +17,56 @@
         body { 
             font-family: 'Inter', sans-serif; 
             -webkit-tap-highlight-color: transparent;
-            user-select: none; /* Recommended for ERP apps to prevent accidental text selection */
-            overscroll-behavior-y: contain; /* Prevents pull-to-refresh in webview */
+            user-select: none;
+            overscroll-behavior-y: contain;
         }
         @media print {
-            .no-print { display: none !important; }
-            .print-only { display: block !important; }
-            body { background: white !important; }
-            @page { margin: 0; }
+            @page { margin: 0 !important; size: auto; }
+            
+            html, body { 
+                margin: 0 !important; 
+                padding: 0 !important; 
+                background: #fff !important; 
+                width: 100% !important;
+                height: auto !important;
+                overflow: visible !important;
+            }
+
+            .no-print, .no-print * { display: none !important; visibility: hidden !important; }
+            
+            #root, main { 
+                display: block !important; 
+                position: static !important;
+                margin: 0 !important;
+                padding: 0 !important;
+            }
+            
+            #print-engine {
+                position: absolute !important;
+                left: 0 !important;
+                top: 0 !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                background: white !important;
+                box-shadow: none !important;
+                visibility: visible !important;
+                display: block !important;
+                z-index: 999999 !important;
+                /* Removed forced black color to allow template brand color */
+            }
+            
+            #print-engine * {
+                visibility: visible !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+
+            table { width: 100% !important; border-collapse: collapse !important; }
         }
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
         ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-        
-        /* Android Safe Area Insets for modern devices */
         .safe-area-pt { padding-top: env(safe-area-inset-top); }
         .safe-area-pb { padding-bottom: env(safe-area-inset-bottom); }
     </style>
@@ -55,16 +89,5 @@
 <body class="bg-slate-50 text-slate-900 overflow-x-hidden">
     <div id="root"></div>
     <script type="module" src="/index.tsx"></script>
-    <script>
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                navigator.serviceWorker.register('/sw.js').then(reg => {
-                    console.log('SW registered');
-                }).catch(err => {
-                    console.log('SW reg failed', err);
-                });
-            });
-        }
-    </script>
 </body>
 </html>

@@ -8,6 +8,14 @@ interface ProductsProps {
   updateData: (updater: (prev: AppData) => AppData) => void;
 }
 
+const formatDate = (dateStr: string) => {
+  if (!dateStr) return '';
+  if (dateStr.includes('T')) {
+    return new Date(dateStr).toLocaleDateString('en-GB');
+  }
+  return dateStr.split('-').reverse().join('/');
+};
+
 const Products: React.FC<ProductsProps> = ({ data, updateData }) => {
   const [showForm, setShowForm] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
@@ -186,7 +194,7 @@ const Products: React.FC<ProductsProps> = ({ data, updateData }) => {
                     </div>
                     {product.priceHistory?.map((h, i) => (
                       <div key={i} className="flex justify-between items-center bg-slate-50 p-2 rounded-lg border border-slate-100 opacity-70">
-                        <span className="text-[10px] font-bold text-slate-400 uppercase">{new Date(h.date).toLocaleDateString()}</span>
+                        <span className="text-[10px] font-bold text-slate-400 uppercase">{formatDate(h.date)}</span>
                         <span className="text-[10px] font-black text-slate-600">₹{h.rate}</span>
                       </div>
                     ))}

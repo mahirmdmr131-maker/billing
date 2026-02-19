@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo } from 'react';
 import { AppData, FutureOrder, SaleItem, Customer, Product, Sale } from '../types';
 import { IconAdd, IconPrint } from './Icons';
@@ -11,10 +12,15 @@ type PrintSize = 'A4' | 'Thermal80' | 'Thermal58';
 type SortKey = 'deliveryDate' | 'orderDate' | 'customerName';
 type SortDirection = 'asc' | 'desc';
 
+const formatDate = (dateStr: string) => {
+  if (!dateStr) return '';
+  return dateStr.split('T')[0].split('-').reverse().join('/');
+};
+
 const FutureOrders: React.FC<FutureOrdersProps> = ({ data, updateData }) => {
   const [showForm, setShowForm] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<FutureOrder | null>(null);
-  const [printSize, setPrintSize] = useState<PrintSize>('A4');
+  const [printSize, setPrintSize] = useState<PrintSize>('Thermal80');
   const [isLargeLogo, setIsLargeLogo] = useState(false);
   
   // Sorting State
@@ -142,7 +148,6 @@ const FutureOrders: React.FC<FutureOrdersProps> = ({ data, updateData }) => {
     updateData(prev => ({
       ...prev,
       sales: [newSale, ...prev.sales],
-      // Fixed: Use 'as const' to ensure 'Delivered' is treated as a literal type compatible with FutureOrder status
       futureOrders: prev.futureOrders.map(o => o.id === order.id ? { ...o, status: 'Delivered' as const } : o)
     }));
     alert('Order converted to Sale successfully.');
@@ -172,7 +177,6 @@ const FutureOrders: React.FC<FutureOrdersProps> = ({ data, updateData }) => {
         isMistake: false
       }));
 
-      // Fixed: Use 'as const' to ensure 'Delivered' is treated as a literal type compatible with FutureOrder status
       const updatedFutureOrders = prev.futureOrders.map(o => 
         o.status === 'Pending' ? { ...o, status: 'Delivered' as const } : o
       );
@@ -355,8 +359,8 @@ const FutureOrders: React.FC<FutureOrdersProps> = ({ data, updateData }) => {
                     </div>
                     <h4 className="text-2xl font-black text-slate-800 uppercase leading-none mb-1">{order.customerName}</h4>
                     <div className="flex flex-col space-y-1">
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Delivery: <span className="text-indigo-600">{new Date(order.deliveryDate).toLocaleDateString()}</span></p>
-                      <p className="text-[10px] font-bold text-slate-300 uppercase tracking-widest italic">Ordered: {new Date(order.orderDate).toLocaleDateString()}</p>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Delivery: <span className="text-indigo-600">{formatDate(order.deliveryDate)}</span></p>
+                      <p className="text-[10px] font-bold text-slate-300 uppercase tracking-widest italic">Ordered: {formatDate(order.orderDate)}</p>
                     </div>
                  </div>
                  <div className="flex space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -456,7 +460,7 @@ const FutureOrders: React.FC<FutureOrdersProps> = ({ data, updateData }) => {
                     <div className="text-right">
                        <p className="opacity-50">Quote #</p>
                        <p>{selectedOrder.orderNumber}</p>
-                       <p>Exp. Delivery: {new Date(selectedOrder.deliveryDate).toLocaleDateString()}</p>
+                       <p>Exp. Delivery: {formatDate(selectedOrder.deliveryDate)}</p>
                     </div>
                  </div>
 
@@ -496,7 +500,7 @@ const FutureOrders: React.FC<FutureOrdersProps> = ({ data, updateData }) => {
 
                  <div className="mt-12 text-center border-t border-black pt-4">
                     <p className="text-[10px] font-black uppercase tracking-widest">Authorized Quote - A M Food Processing</p>
-                    <p className="text-[8px] mt-2 italic font-medium opacity-60">* This quote is valid for 7 days from {new Date().toLocaleDateString()} *</p>
+                    <p className="text-[8px] mt-2 italic font-medium opacity-60">* This quote is valid for 7 days from {new Date().toLocaleDateString('en-GB')} *</p>
                  </div>
               </div>
            </div>

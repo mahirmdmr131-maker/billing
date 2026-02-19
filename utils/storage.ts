@@ -1,9 +1,25 @@
-
-import { AppData, User, DashboardWidget, RecycleBin } from '../types';
+import { AppData, User, DashboardWidget, RecycleBin, TemplateSettings } from '../types';
 
 const STORAGE_KEY = 'am_food_processing_data';
 const HANDLE_DB_NAME = 'am_food_handles_db';
 const HANDLE_STORE_NAME = 'handles';
+
+const DEFAULT_TEMPLATE: TemplateSettings = {
+  applyToPrinting: true, // Default to true
+  showLogo: true,
+  logoSize: 80,
+  showSKU: false,
+  showRatePerUnit: true,
+  showDues: true,
+  footerText: "Thank you for your business!",
+  termsText: "Goods once sold will not be returned.",
+  brandColor: "#4f46e5",
+  includeSignatures: true,
+  fontSize: 12,
+  lineSpacing: 1.2,
+  compactMode: false,
+  borderWeight: 2
+};
 
 const DEFAULT_RECYCLE_BIN: RecycleBin = {
   sales: [],
@@ -43,10 +59,10 @@ const DEFAULT_DATA: AppData = {
   isOneDriveConnected: false,
   backupFolderName: 'AM_Food_Manager_Backups',
   snapshots: [],
-  autoLogoutMinutes: 0
+  autoLogoutMinutes: 0,
+  templateSettings: DEFAULT_TEMPLATE
 };
 
-// IndexedDB Helper for FileSystemHandle persistence
 export const getHandleDB = (): Promise<IDBDatabase> => {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(HANDLE_DB_NAME, 1);
@@ -87,6 +103,16 @@ export const loadData = (): AppData => {
   if (!stored) return DEFAULT_DATA;
   try {
     const data = JSON.parse(stored);
+    if (!data.templateSettings) data.templateSettings = DEFAULT_TEMPLATE;
+    else {
+      // Ensure new template settings are initialized if they don't exist
+      if (data.templateSettings.applyToPrinting === undefined) data.templateSettings.applyToPrinting = true;
+      if (data.templateSettings.fontSize === undefined) data.templateSettings.fontSize = 12;
+      if (data.templateSettings.lineSpacing === undefined) data.templateSettings.lineSpacing = 1.2;
+      if (data.templateSettings.compactMode === undefined) data.templateSettings.compactMode = false;
+      if (data.templateSettings.borderWeight === undefined) data.templateSettings.borderWeight = 2;
+      if (data.templateSettings.logoSize === undefined) data.templateSettings.logoSize = 80;
+    }
     if (!data.users) data.users = [];
     if (!data.customers) data.customers = [];
     if (!data.products) data.products = [];
@@ -109,7 +135,6 @@ export const loadData = (): AppData => {
       pendingBalance: c.pendingBalance || 0
     }));
 
-    // Ensure priceHistory exists for all products
     data.products = data.products.map((p: any) => ({
       ...p,
       priceHistory: p.priceHistory || []
