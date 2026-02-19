@@ -119,10 +119,11 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData, initialSale, onRe
     
     const paperWidth = printMode === 'Thermal58' ? '58mm' : printMode === 'Thermal80' ? '80mm' : '210mm';
     const template = data.templateSettings;
+    const useTemplate = template.applyToPrinting;
 
     // PRINT SCALING LOGIC
     const scalingFactor = printMode === 'Thermal58' ? 0.75 : printMode === 'Thermal80' ? 0.9 : 1.0;
-    const baseFontSize = template.applyToPrinting ? template.fontSize : 12;
+    const baseFontSize = useTemplate ? template.fontSize : 12;
     const effectiveFontSize = baseFontSize * scalingFactor;
 
     return (
@@ -193,26 +194,27 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData, initialSale, onRe
             width: paperWidth, 
             minHeight: printMode === 'A4' ? '297mm' : 'auto', 
             fontSize: `${effectiveFontSize}px`, 
-            lineHeight: template.applyToPrinting ? template.lineSpacing : 1.2, 
+            lineHeight: useTemplate ? template.lineSpacing : 1.2, 
             fontFamily: isThermal ? 'monospace' : 'inherit', 
             color: 'black', 
             boxSizing: 'border-box',
             overflow: 'hidden',
             wordBreak: 'break-word'
           }}>
-            <div className={`${(template.applyToPrinting && template.compactMode) ? 'p-1' : (isThermal ? 'p-2' : 'p-8')} border-black`} style={{ 
-              borderWidth: template.applyToPrinting ? `${template.borderWeight}px` : '2px',
-              paddingLeft: (template.applyToPrinting && template.compactMode) ? '1mm' : (isThermal ? '2mm' : '8mm'), 
-              paddingRight: (template.applyToPrinting && template.compactMode) ? '1mm' : (isThermal ? '2mm' : '8mm')
+            <div className={`${(useTemplate && template.compactMode) ? 'p-1' : (isThermal ? 'p-2' : 'p-8')} border-black`} style={{ 
+              borderWidth: useTemplate ? `${template.borderWeight}px` : '2px',
+              paddingLeft: (useTemplate && template.compactMode) ? '1mm' : (isThermal ? '2mm' : '8mm'), 
+              paddingRight: (useTemplate && template.compactMode) ? '1mm' : (isThermal ? '2mm' : '8mm')
             }}>
               <div className="text-center mb-4">
-                {((template.applyToPrinting ? template.showLogo : true) && data.business?.logo) && (
-                  <img src={data.business.logo} alt="Logo" className="mx-auto mb-2 object-contain opacity-90 mix-blend-multiply" style={{ width: template.applyToPrinting ? `${template.logoSize * scalingFactor}px` : '60px' }} />
+                {includeOwnerCopy && <p className="font-black text-lg tracking-widest text-slate-200 print:text-slate-200 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 -rotate-45 opacity-50 z-0">OWNER'S COPY</p>}
+                {((useTemplate ? template.showLogo : true) && data.business?.logo) && (
+                  <img src={data.business.logo} alt="Logo" className="mx-auto mb-2 object-contain opacity-90 mix-blend-multiply" style={{ width: useTemplate ? `${template.logoSize * scalingFactor}px` : '60px' }} />
                 )}
-                <h1 className="font-black uppercase tracking-tighter" style={{ fontSize: '1.6em', color: template.applyToPrinting ? template.brandColor : '#000' }}>{data.business?.name}</h1>
+                <h1 className="font-black uppercase tracking-tighter" style={{ fontSize: '1.6em', color: useTemplate ? template.brandColor : '#000' }}>{data.business?.name}</h1>
                 <p className="font-bold opacity-75 uppercase tracking-widest" style={{ fontSize: '0.65em' }}>{data.business?.tagline}</p>
                 <div className="mt-1 font-medium" style={{ fontSize: '0.6em' }}><p>{data.business?.address}</p><p>Ph: {data.business?.phone}</p></div>
-                <h2 className="mt-3 font-black uppercase tracking-[0.2em] py-1 text-white text-center" style={{ backgroundColor: template.applyToPrinting ? template.brandColor : '#000', fontSize: '0.75em' }}>Sale Invoice</h2>
+                <h2 className="mt-3 font-black uppercase tracking-[0.2em] py-1 text-white text-center" style={{ backgroundColor: useTemplate ? template.brandColor : '#000', fontSize: '0.75em' }}>Sale Invoice</h2>
               </div>
 
               <div className="flex justify-between mb-4 font-black uppercase" style={{ fontSize: '0.65em' }}>
@@ -232,7 +234,7 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData, initialSale, onRe
                   <tr>
                     <th className="py-1.5 text-left">Item</th>
                     <th className="py-1.5 text-center">Qty</th>
-                    {(template.applyToPrinting ? template.showRatePerUnit : true) && <th className="py-1.5 text-right">Rate</th>}
+                    {(useTemplate ? template.showRatePerUnit : true) && <th className="py-1.5 text-right">Rate</th>}
                     <th className="py-1.5 text-right">Total</th>
                   </tr>
                 </thead>
@@ -241,10 +243,10 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData, initialSale, onRe
                     <tr key={i}>
                       <td className="py-2 uppercase leading-tight pr-1">
                         {it.productName}
-                        {(template.applyToPrinting && template.showSKU) && <div className="text-[0.6em] opacity-40">SKU: AM-{i+1}</div>}
+                        {(useTemplate && template.showSKU) && <div className="text-[0.6em] opacity-40">SKU: AM-{i+1}</div>}
                       </td>
                       <td className="py-2 text-center whitespace-nowrap">{it.quantity}{it.unit}</td>
-                      {(template.applyToPrinting ? template.showRatePerUnit : true) && <td className="py-2 text-right whitespace-nowrap">₹{it.rate}</td>}
+                      {(useTemplate ? template.showRatePerUnit : true) && <td className="py-2 text-right whitespace-nowrap">₹{it.rate}</td>}
                       <td className="py-2 text-right whitespace-nowrap">₹{it.total.toLocaleString()}</td>
                     </tr>
                   ))}
@@ -268,13 +270,13 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData, initialSale, onRe
                   <p className="uppercase font-black opacity-40 mt-4" style={{ fontSize: '0.45em' }}>Pay Mode: {selectedInvoice.paymentMethod} | {currentTime}</p>
               </div>
 
-              {(template.applyToPrinting ? template.footerText : true) && (
+              {(useTemplate ? template.footerText : true) && (
                  <p className="mt-6 text-center font-bold italic opacity-60" style={{ fontSize: '0.6em' }}>
                    {applyTemplate(template.footerText || "Thank you for your business!", selectedInvoice)}
                  </p>
               )}
 
-              {(template.applyToPrinting ? template.includeSignatures : true) && (
+              {(useTemplate ? template.includeSignatures : true) && (
                 <div className="mt-12 mb-2 flex justify-between px-1">
                   <div className="text-center">
                     <div className="border-t border-black w-16 mx-auto mb-1"></div>
@@ -289,7 +291,7 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData, initialSale, onRe
 
               <div className="mt-6 text-center border-t border-dotted border-gray-400 pt-3">
                 <p className="font-black uppercase tracking-widest opacity-30" style={{ fontSize: '0.45em' }}>A M Food Processing QC Passed</p>
-                {(template.applyToPrinting && template.termsText) && (
+                {(useTemplate && template.termsText) && (
                    <p className="mt-1 font-medium opacity-40 leading-tight" style={{ fontSize: '0.4em' }}>{template.termsText}</p>
                 )}
               </div>

@@ -17,6 +17,12 @@ export interface BusinessInfo {
   tagline: string;
 }
 
+export interface CustomField {
+  id: string;
+  label: string;
+  value: string;
+}
+
 export interface TemplateSettings {
   applyToPrinting: boolean; // New: Master toggle for template application
   showLogo: boolean;
@@ -32,6 +38,7 @@ export interface TemplateSettings {
   lineSpacing: number; // 0.8 to 2.5
   compactMode: boolean; // Toggles dense packing
   borderWeight: number; // 0 to 4
+  customFields: CustomField[];
 }
 
 export interface UpiQr {

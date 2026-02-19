@@ -9,7 +9,7 @@ interface CustomersProps {
 }
 
 type SummaryPeriod = 'week' | 'month' | 'year';
-type IndividualPrintMode = 'full' | 'sales_only' | 'pending_only' | 'summary' | 'settlements' | 'weekly';
+type IndividualPrintMode = 'full' | 'sales_only' | 'pending_only' | 'summary' | 'settlements' | 'weekly' | 'date_range';
 type PrintSize = 'A4' | 'Thermal80' | 'Thermal58';
 type CustomerSortKey = 'name' | 'dues' | 'revenue' | 'date';
 type SortDirection = 'asc' | 'desc';
@@ -74,6 +74,7 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
   const [indivIncludeDues, setIndivIncludeDues] = useState(true);
   const [printSize, setPrintSize] = useState<PrintSize>('A4');
   const [selectedSettlementDate, setSelectedSettlementDate] = useState<string | null>(null);
+  const [dateRange, setDateRange] = useState({ start: new Date().toISOString().split('T')[0], end: new Date().toISOString().split('T')[0] });
 
   const [formData, setFormData] = useState({
     name: '',
@@ -268,10 +269,14 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
       const sevenDaysAgoStr = sevenDaysAgo.toISOString().split('T')[0];
       filtered = filtered.filter(s => s.date >= sevenDaysAgoStr);
+    } else if (indivPrintMode === 'date_range') {
+      if (dateRange.start && dateRange.end) {
+        filtered = filtered.filter(s => s.date >= dateRange.start && s.date <= dateRange.end);
+      }
     }
 
     return filtered.sort((a, b) => b.date.localeCompare(a.date));
-  }, [data.sales, viewCustomer, indivPrintMode, selectedSettlementDate]);
+  }, [data.sales, viewCustomer, indivPrintMode, selectedSettlementDate, dateRange]);
 
   const handleQuickPrint = (customer: Customer, mode: IndividualPrintMode) => {
     setViewCustomer(customer);
@@ -340,7 +345,7 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
           
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200">
-              {(['full', 'pending_only', 'weekly', 'summary', 'settlements'] as IndividualPrintMode[]).map(m => (
+              {(['full', 'pending_only', 'weekly', 'date_range', 'summary', 'settlements'] as IndividualPrintMode[]).map(m => (
                 <button 
                   key={m}
                   onClick={() => setIndivPrintMode(m)} 
@@ -348,6 +353,14 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
                 >{m.replace('_', ' ')}</button>
               ))}
             </div>
+
+            {indivPrintMode === 'date_range' && (
+              <div className="flex items-center gap-2 p-1 rounded-xl border bg-slate-100 border-slate-200 animate-in fade-in duration-200">
+                <input type="date" value={dateRange.start} onChange={e => setDateRange(p => ({...p, start: e.target.value}))} className="px-3 py-1 text-[10px] font-bold rounded-lg border-slate-200 outline-none" />
+                <span className="text-slate-400 text-xs font-bold">to</span>
+                <input type="date" value={dateRange.end} onChange={e => setDateRange(p => ({...p, end: e.target.value}))} className="px-3 py-1 text-[10px] font-bold rounded-lg border-slate-200 outline-none" />
+              </div>
+            )}
 
             <select 
               value={printSize} 
@@ -381,7 +394,8 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
                   {indivPrintMode === 'pending_only' ? 'Statement of Pending Dues' : 
                    indivPrintMode === 'settlements' ? `Settlement Report - ${formatDate(selectedSettlementDate || '')}` : 
                    indivPrintMode === 'summary' ? 'Account Overview' : 
-                   indivPrintMode === 'weekly' ? 'Weekly Statement (Last 7 Days)' : 'Client Ledger Report'}
+                   indivPrintMode === 'weekly' ? 'Weekly Statement (Last 7 Days)' : 
+                   indivPrintMode === 'date_range' ? `Statement for ${formatDate(dateRange.start)} to ${formatDate(dateRange.end)}` : 'Client Ledger Report'}
                  </h2>
               </div>
 
