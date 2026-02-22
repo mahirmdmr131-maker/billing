@@ -306,7 +306,8 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
                  <button onClick={() => updateData(prev => ({...prev, templateSettings: {
                     applyToPrinting: true, showLogo: true, logoSize: 80, showSKU: false, showRatePerUnit: true, showDues: true,
                     footerText: "Thank you for your business!", termsText: "Goods once sold will not be returned.",
-                    brandColor: "#4f46e5", includeSignatures: true, fontSize: 12, lineSpacing: 1.2, compactMode: false, borderWeight: 2
+                    brandColor: "#4f46e5", includeSignatures: true, fontSize: 12, lineSpacing: 1.2, compactMode: false, borderWeight: 2,
+                    customFields: []
                  }}))} className="w-full py-3 text-[9px] font-black text-rose-600 uppercase tracking-widest border border-rose-100 bg-rose-50 rounded-xl hover:bg-rose-100 transition-all">Reset to Factory Default</button>
               </div>
            </div>

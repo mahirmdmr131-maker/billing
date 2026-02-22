@@ -386,6 +386,17 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices, p
                   </div>
                 </div>
 
+                {(template.applyToPrinting && template.customFields && template.customFields.length > 0) && (
+                   <div className="mb-4 grid grid-cols-2 gap-2" style={{ fontSize: '0.65em' }}>
+                      {template.customFields.map(field => (
+                         <div key={field.id} className="flex flex-col">
+                            <span className="opacity-40 font-black uppercase">{field.label}</span>
+                            <span className="font-bold">{applyTemplate(field.value, lastSavedSale)}</span>
+                         </div>
+                      ))}
+                   </div>
+                )}
+
                 <table className="w-full mb-6 border-collapse table-auto">
                   <thead className="border-black uppercase" style={{ borderTopWidth: '2px', borderBottomWidth: '2px', fontSize: '0.6em' }}>
                     <tr>

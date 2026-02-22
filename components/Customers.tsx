@@ -278,6 +278,75 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
     return filtered.sort((a, b) => b.date.localeCompare(a.date));
   }, [data.sales, viewCustomer, indivPrintMode, selectedSettlementDate, dateRange]);
 
+  const { openingBalance, ledgerEntries } = useMemo(() => {
+    if (!viewCustomer || indivPrintMode !== 'date_range') return { openingBalance: 0, ledgerEntries: [] };
+
+    const start = dateRange.start;
+    const end = dateRange.end;
+    const sales = (data.sales || []).filter(s => s.customerId === viewCustomer.id && !s.isMistake);
+
+    // 1. Calculate Opening Balance (Dues before start date)
+    // Logic: Sales created before start date that were NOT fully paid before start date.
+    const opening = sales.reduce((sum, s) => {
+      if (s.date < start) {
+        // It's an old sale. Is it still pending relative to start date?
+        // If it was 'Pending' originally:
+        if (s.originalPaymentMethod === 'Pending' || s.paymentMethod === 'Pending') {
+           // If it's currently marked Pending, it's definitely unpaid.
+           // OR if it's paid, but the payment happened ON or AFTER the start date, 
+           // then at the start date moment, it was still pending.
+           if (s.paymentMethod === 'Pending' || (s.paidDate && s.paidDate >= start)) {
+             return sum + s.totalAmount;
+           }
+        }
+      }
+      return sum;
+    }, 0);
+
+    // 2. Build Ledger Entries (Invoices and Settlements within range)
+    const entries: { date: string; type: 'INVOICE' | 'PAYMENT'; ref: string; debit: number; credit: number; original: Sale }[] = [];
+
+    sales.forEach(s => {
+      // A. Invoice Event (Sale created in range)
+      if (s.date >= start && s.date <= end) {
+        entries.push({
+          date: s.date,
+          type: 'INVOICE',
+          ref: s.invoiceNumber,
+          debit: s.totalAmount,
+          credit: 0,
+          original: s
+        });
+      }
+
+      // B. Payment Event (Payment received in range)
+      // Only for sales that were originally pending (credit sales)
+      if ((s.originalPaymentMethod === 'Pending' || s.paymentMethod === 'Pending') && s.paidDate && s.paidDate >= start && s.paidDate <= end) {
+        entries.push({
+          date: s.paidDate,
+          type: 'PAYMENT',
+          ref: s.invoiceNumber,
+          debit: 0,
+          credit: s.totalAmount,
+          original: s
+        });
+      }
+    });
+
+    // Sort by date
+    entries.sort((a, b) => a.date.localeCompare(b.date));
+
+    // Calculate running balance
+    let runningBalance = opening;
+    const entriesWithBalance = entries.map(e => {
+       if (e.type === 'INVOICE') runningBalance += e.debit;
+       if (e.type === 'PAYMENT') runningBalance -= e.credit;
+       return { ...e, balance: runningBalance };
+    });
+
+    return { openingBalance: opening, ledgerEntries: entriesWithBalance };
+  }, [data.sales, viewCustomer, indivPrintMode, dateRange]);
+
   const handleQuickPrint = (customer: Customer, mode: IndividualPrintMode) => {
     setViewCustomer(customer);
     setIndivPrintMode(mode);
@@ -483,57 +552,107 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
                         </div>
                         <div className="overflow-x-auto">
                             <table className="w-full text-left text-sm print:text-[10px] border-collapse">
-                            <thead className="bg-slate-50/50 border-b text-[10px] font-black text-slate-400 uppercase tracking-widest print:text-black print:border-black">
-                                <tr>
-                                <th className="px-8 py-4 print:px-2">Date</th>
-                                <th className="px-8 py-4 print:px-2">Invoice</th>
-                                {!isThermal && <th className="px-8 py-4 print:px-2">Status</th>}
-                                <th className="px-8 py-4 text-right print:px-2">Amount</th>
-                                <th className="px-8 py-4 text-center no-print">Action</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100 print:divide-black">
-                                {customerSales.map(s => (
-                                <tr key={s.id} className="hover:bg-slate-50 transition-colors">
-                                    <td className="px-8 py-4 font-bold text-slate-600 print:text-black print:px-2">
-                                      {formatDate(s.date)}
-                                    </td>
-                                    <td className="px-8 py-4 font-black text-indigo-600 tracking-tighter print:text-black print:px-2">#{s.invoiceNumber.split('-')[1]}</td>
-                                    {!isThermal && (
-                                      <td className="px-8 py-4">
-                                          <span className={`text-[10px] font-black uppercase px-2 py-1 rounded border ${
-                                              s.paymentMethod === 'Pending' ? 'bg-orange-50 text-orange-600 border-orange-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'
-                                          } print:border-none`}>
-                                              {s.originalPaymentMethod === 'Pending' && s.paymentMethod !== 'Pending' ? `Settled (${s.paymentMethod})` : s.paymentMethod}
-                                          </span>
-                                      </td>
-                                    )}
-                                    <td className="px-8 py-4 text-right font-black text-slate-800 print:text-black print:px-2">₹{s.totalAmount.toLocaleString()}</td>
-                                    <td className="px-8 py-4 text-center no-print">
-                                      <button onClick={() => onNavigateToInvoices && onNavigateToInvoices(s)} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg">
-                                        <IconPrint className="w-4 h-4" />
-                                      </button>
-                                    </td>
-                                </tr>
-                                ))}
-                                {customerSales.length === 0 && (
+                            {indivPrintMode === 'date_range' ? (
+                              <>
+                                <thead className="bg-slate-50/50 border-b text-[10px] font-black text-slate-400 uppercase tracking-widest print:text-black print:border-black">
                                   <tr>
-                                    <td colSpan={5} className="py-20 text-center text-slate-400 font-bold uppercase text-xs tracking-widest italic">No matching records</td>
+                                    <th className="px-8 py-4 print:px-2">Date</th>
+                                    <th className="px-8 py-4 print:px-2">Description</th>
+                                    <th className="px-8 py-4 text-right print:px-2">Debit</th>
+                                    <th className="px-8 py-4 text-right print:px-2">Credit</th>
+                                    <th className="px-8 py-4 text-right print:px-2">Balance</th>
                                   </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100 print:divide-black">
+                                  <tr className="bg-slate-50 print:bg-white font-bold">
+                                    <td className="px-8 py-4 print:px-2 text-slate-500 print:text-black" colSpan={4}>OPENING BALANCE</td>
+                                    <td className="px-8 py-4 text-right print:px-2 font-black">₹{openingBalance.toLocaleString()}</td>
+                                  </tr>
+                                  {ledgerEntries.map((e, i) => (
+                                    <tr key={i} className="hover:bg-slate-50 transition-colors">
+                                      <td className="px-8 py-4 font-bold text-slate-600 print:text-black print:px-2">{formatDate(e.date)}</td>
+                                      <td className="px-8 py-4 font-black tracking-tighter print:text-black print:px-2">
+                                        {e.type === 'INVOICE' ? (
+                                          <span className="text-indigo-600 print:text-black">INV #{e.ref.split('-')[1]}</span>
+                                        ) : (
+                                          <span className="text-emerald-600 print:text-black">PAYMENT RECEIVED</span>
+                                        )}
+                                      </td>
+                                      <td className="px-8 py-4 text-right font-black text-slate-800 print:text-black print:px-2">{e.debit > 0 ? `₹${e.debit.toLocaleString()}` : '-'}</td>
+                                      <td className="px-8 py-4 text-right font-black text-slate-800 print:text-black print:px-2">{e.credit > 0 ? `₹${e.credit.toLocaleString()}` : '-'}</td>
+                                      <td className="px-8 py-4 text-right font-black text-slate-800 print:text-black print:px-2">₹{e.balance.toLocaleString()}</td>
+                                    </tr>
+                                  ))}
+                                  {ledgerEntries.length === 0 && (
+                                    <tr>
+                                      <td colSpan={5} className="py-20 text-center text-slate-400 font-bold uppercase text-xs tracking-widest italic">No transactions in this period</td>
+                                    </tr>
+                                  )}
+                                </tbody>
+                                <tfoot>
+                                  <tr className="bg-slate-900 text-white print:bg-white print:text-black print:border-t-2 print:border-black">
+                                    <td colSpan={4} className="px-8 py-4 font-black uppercase text-right tracking-widest print:px-2 print:text-[12px]">Closing Balance</td>
+                                    <td className="px-8 py-4 text-right font-black text-xl print:px-2 print:text-[14px]">
+                                      ₹{(ledgerEntries.length > 0 ? ledgerEntries[ledgerEntries.length - 1].balance : openingBalance).toLocaleString()}
+                                    </td>
+                                  </tr>
+                                </tfoot>
+                              </>
+                            ) : (
+                              <>
+                                <thead className="bg-slate-50/50 border-b text-[10px] font-black text-slate-400 uppercase tracking-widest print:text-black print:border-black">
+                                    <tr>
+                                    <th className="px-8 py-4 print:px-2">Date</th>
+                                    <th className="px-8 py-4 print:px-2">Invoice</th>
+                                    {!isThermal && <th className="px-8 py-4 print:px-2">Status</th>}
+                                    <th className="px-8 py-4 text-right print:px-2">Amount</th>
+                                    <th className="px-8 py-4 text-center no-print">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100 print:divide-black">
+                                    {customerSales.map(s => (
+                                    <tr key={s.id} className="hover:bg-slate-50 transition-colors">
+                                        <td className="px-8 py-4 font-bold text-slate-600 print:text-black print:px-2">
+                                          {formatDate(s.date)}
+                                        </td>
+                                        <td className="px-8 py-4 font-black text-indigo-600 tracking-tighter print:text-black print:px-2">#{s.invoiceNumber.split('-')[1]}</td>
+                                        {!isThermal && (
+                                          <td className="px-8 py-4">
+                                              <span className={`text-[10px] font-black uppercase px-2 py-1 rounded border ${
+                                                  s.paymentMethod === 'Pending' ? 'bg-orange-50 text-orange-600 border-orange-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'
+                                              } print:border-none`}>
+                                                  {s.originalPaymentMethod === 'Pending' && s.paymentMethod !== 'Pending' ? `Settled (${s.paymentMethod})` : s.paymentMethod}
+                                              </span>
+                                          </td>
+                                        )}
+                                        <td className="px-8 py-4 text-right font-black text-slate-800 print:text-black print:px-2">₹{s.totalAmount.toLocaleString()}</td>
+                                        <td className="px-8 py-4 text-center no-print">
+                                          <button onClick={() => onNavigateToInvoices && onNavigateToInvoices(s)} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg">
+                                            <IconPrint className="w-4 h-4" />
+                                          </button>
+                                        </td>
+                                    </tr>
+                                    ))}
+                                    {customerSales.length === 0 && (
+                                      <tr>
+                                        <td colSpan={5} className="py-20 text-center text-slate-400 font-bold uppercase text-xs tracking-widest italic">No matching records</td>
+                                      </tr>
+                                    )}
+                                </tbody>
+                                {(indivIncludeDues || indivPrintMode === 'settlements') && (
+                                  <tfoot>
+                                    <tr className="bg-slate-900 text-white print:bg-white print:text-black print:border-t-2 print:border-black">
+                                      <td colSpan={isThermal ? 2 : 3} className="px-8 py-4 font-black uppercase text-right tracking-widest print:px-2 print:text-[12px]">
+                                        {indivPrintMode === 'settlements' ? 'Total Settlement Value' : 'Net Account Dues'}
+                                      </td>
+                                      <td className="px-8 py-4 text-right font-black text-xl print:px-2 print:text-[14px]">
+                                        ₹{(indivPrintMode === 'settlements' ? customerSales.reduce((sum, s) => sum + s.totalAmount, 0) : viewCustomer.pendingBalance).toLocaleString()}
+                                      </td>
+                                      <td className="no-print"></td>
+                                    </tr>
+                                  </tfoot>
                                 )}
-                            </tbody>
-                            {(indivIncludeDues || indivPrintMode === 'settlements') && (
-                              <tfoot>
-                                <tr className="bg-slate-900 text-white print:bg-white print:text-black print:border-t-2 print:border-black">
-                                  <td colSpan={isThermal ? 2 : 3} className="px-8 py-4 font-black uppercase text-right tracking-widest print:px-2 print:text-[12px]">
-                                    {indivPrintMode === 'settlements' ? 'Total Settlement Value' : 'Net Account Dues'}
-                                  </td>
-                                  <td className="px-8 py-4 text-right font-black text-xl print:px-2 print:text-[14px]">
-                                    ₹{(indivPrintMode === 'settlements' ? customerSales.reduce((sum, s) => sum + s.totalAmount, 0) : viewCustomer.pendingBalance).toLocaleString()}
-                                  </td>
-                                  <td className="no-print"></td>
-                                </tr>
-                              </tfoot>
+                              </>
                             )}
                             </table>
                         </div>

@@ -18,7 +18,8 @@ const DEFAULT_TEMPLATE: TemplateSettings = {
   fontSize: 12,
   lineSpacing: 1.2,
   compactMode: false,
-  borderWeight: 2
+  borderWeight: 2,
+  customFields: []
 };
 
 const DEFAULT_RECYCLE_BIN: RecycleBin = {
@@ -112,6 +113,7 @@ export const loadData = (): AppData => {
       if (data.templateSettings.compactMode === undefined) data.templateSettings.compactMode = false;
       if (data.templateSettings.borderWeight === undefined) data.templateSettings.borderWeight = 2;
       if (data.templateSettings.logoSize === undefined) data.templateSettings.logoSize = 80;
+      if (data.templateSettings.customFields === undefined) data.templateSettings.customFields = [];
     }
     if (!data.users) data.users = [];
     if (!data.customers) data.customers = [];
