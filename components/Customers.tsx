@@ -1,11 +1,13 @@
 import React, { useState, useMemo } from 'react';
-import { AppData, Customer, Sale, NavigationTab, SaleItem, PaymentMethod } from '../types';
+import { AppData, Customer, Sale, NavigationTab, SaleItem, PaymentMethod, Settlement } from '../types';
 import { IconAdd, IconPrint } from './Icons';
 
 interface CustomersProps {
   data: AppData;
   updateData: (updater: (prev: AppData) => AppData) => void;
   onNavigateToInvoices?: (sale: Sale) => void;
+  initialCustomer?: Customer | null;
+  onClearInitialCustomer?: () => void;
 }
 
 type SummaryPeriod = 'week' | 'month' | 'year';
@@ -51,14 +53,22 @@ const summaryData = (sales: Sale[], period: SummaryPeriod) => {
   return { total, count: filtered.length, items: filtered };
 };
 
-const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInvoices }) => {
+const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInvoices, initialCustomer, onClearInitialCustomer }) => {
   const [showForm, setShowForm] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [viewCustomer, setViewCustomer] = useState<Customer | null>(null);
+
+  React.useEffect(() => {
+    if (initialCustomer) {
+      setViewCustomer(initialCustomer);
+      if (onClearInitialCustomer) onClearInitialCustomer();
+    }
+  }, [initialCustomer, onClearInitialCustomer]);
   const [searchTerm, setSearchTerm] = useState('');
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
   const [settlementMethod, setSettlementMethod] = useState<PaymentMethod>('Cash');
+  const [settlementHistoryDate, setSettlementHistoryDate] = useState('');
   
   // Sorting State
   const [sortKey, setSortKey] = useState<CustomerSortKey>('name');
@@ -93,10 +103,14 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
   };
 
   const sortedAndFilteredCustomers = useMemo<Customer[]>(() => {
-    const filteredList = (data.customers || []).filter((c: Customer) => 
-      c.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-      c.phone.includes(searchTerm)
-    );
+    const filteredList = (data.customers || []).filter((c: Customer) => {
+      const searchLower = searchTerm.toLowerCase();
+      return c.name.toLowerCase().includes(searchLower) || 
+             c.phone.includes(searchTerm) ||
+             (c.email && c.email.toLowerCase().includes(searchLower)) ||
+             (c.address && c.address.toLowerCase().includes(searchLower)) ||
+             (c.gst && c.gst.toLowerCase().includes(searchLower));
+    });
 
     return [...filteredList].sort((a, b) => {
       let comparison = 0;
@@ -208,12 +222,25 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
         }
       }
 
+      // Create Settlement Record
+      const newSettlementRecord: Settlement = {
+        id: crypto.randomUUID(),
+        customerId: viewCustomer.id,
+        customerName: viewCustomer.name,
+        date: paymentDate,
+        amount: amountToClear,
+        status: 'Settled',
+        paymentMethod: settlementMethod as "Cash" | "UPI" | "Cheque" | "Other",
+        notes: 'Direct Collection'
+      };
+
       return {
         ...prev,
         sales: updatedSales,
         customers: prev.customers.map(c => 
           c.id === viewCustomer.id ? { ...c, pendingBalance: Math.max(0, c.pendingBalance - amountToClear) } : c
-        )
+        ),
+        settlements: [newSettlementRecord, ...(prev.settlements || [])]
       };
     });
     
@@ -286,15 +313,12 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
     const sales = (data.sales || []).filter(s => s.customerId === viewCustomer.id && !s.isMistake);
 
     // 1. Calculate Opening Balance (Dues before start date)
-    // Logic: Sales created before start date that were NOT fully paid before start date.
     const opening = sales.reduce((sum, s) => {
       if (s.date < start) {
-        // It's an old sale. Is it still pending relative to start date?
-        // If it was 'Pending' originally:
+        // If it was a credit sale (originally pending)
         if (s.originalPaymentMethod === 'Pending' || s.paymentMethod === 'Pending') {
-           // If it's currently marked Pending, it's definitely unpaid.
-           // OR if it's paid, but the payment happened ON or AFTER the start date, 
-           // then at the start date moment, it was still pending.
+           // It contributes to opening balance if it is STILL pending, 
+           // OR if it was paid on or after the start date (meaning it was due at start date)
            if (s.paymentMethod === 'Pending' || (s.paidDate && s.paidDate >= start)) {
              return sum + s.totalAmount;
            }
@@ -303,11 +327,11 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
       return sum;
     }, 0);
 
-    // 2. Build Ledger Entries (Invoices and Settlements within range)
+    // 2. Build Ledger Entries
     const entries: { date: string; type: 'INVOICE' | 'PAYMENT'; ref: string; debit: number; credit: number; original: Sale }[] = [];
 
     sales.forEach(s => {
-      // A. Invoice Event (Sale created in range)
+      // A. Invoice Event (Bill generated)
       if (s.date >= start && s.date <= end) {
         entries.push({
           date: s.date,
@@ -319,22 +343,37 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
         });
       }
 
-      // B. Payment Event (Payment received in range)
-      // Only for sales that were originally pending (credit sales)
-      if ((s.originalPaymentMethod === 'Pending' || s.paymentMethod === 'Pending') && s.paidDate && s.paidDate >= start && s.paidDate <= end) {
-        entries.push({
-          date: s.paidDate,
-          type: 'PAYMENT',
-          ref: s.invoiceNumber,
-          debit: 0,
-          credit: s.totalAmount,
-          original: s
-        });
+      // B. Payment Event (Payment received)
+      if (s.paymentMethod !== 'Pending') {
+        let paymentDate = s.date; // Default to immediate payment date
+        let isPaymentEvent = true;
+
+        // If it was a credit sale, use the actual paid date
+        if (s.originalPaymentMethod === 'Pending') {
+           if (s.paidDate) paymentDate = s.paidDate;
+           else isPaymentEvent = false; // Should not happen for settled invoices, but safety check
+        }
+
+        // If payment happened within the range, record it
+        if (isPaymentEvent && paymentDate >= start && paymentDate <= end) {
+          entries.push({
+            date: paymentDate,
+            type: 'PAYMENT',
+            ref: s.invoiceNumber,
+            debit: 0,
+            credit: s.totalAmount,
+            original: s
+          });
+        }
       }
     });
 
-    // Sort by date
-    entries.sort((a, b) => a.date.localeCompare(b.date));
+    // Sort by date, then by type (Invoice before Payment if same day)
+    entries.sort((a, b) => {
+      const dateDiff = a.date.localeCompare(b.date);
+      if (dateDiff !== 0) return dateDiff;
+      return a.type === 'INVOICE' ? -1 : 1;
+    });
 
     // Calculate running balance
     let runningBalance = opening;
@@ -399,6 +438,248 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
       </span>
     </button>
   );
+
+  // Settlement Management State
+  const [viewMode, setViewMode] = useState<'list' | 'settlements'>('list');
+  const [settlementFilter, setSettlementFilter] = useState({ start: '', end: '' });
+  const [settlementSearch, setSettlementSearch] = useState('');
+  const [newSettlement, setNewSettlement] = useState({
+    customerName: '',
+    amount: '',
+    date: new Date().toISOString().split('T')[0],
+    notes: ''
+  });
+
+  const filteredSettlements = useMemo(() => {
+    let list = data.settlements || [];
+    if (settlementSearch) {
+      list = list.filter(s => s.customerName.toLowerCase().includes(settlementSearch.toLowerCase()));
+    }
+    if (settlementFilter.start) {
+      list = list.filter(s => s.date >= settlementFilter.start);
+    }
+    if (settlementFilter.end) {
+      list = list.filter(s => s.date <= settlementFilter.end);
+    }
+    return list.sort((a, b) => b.date.localeCompare(a.date));
+  }, [data.settlements, settlementSearch, settlementFilter]);
+
+  const totalSettledAmount = useMemo(() => filteredSettlements.filter(s => s.status === 'Settled').reduce((sum, s) => sum + s.amount, 0), [filteredSettlements]);
+  const totalUnsettledAmount = useMemo(() => filteredSettlements.filter(s => s.status === 'Unsettled').reduce((sum, s) => sum + s.amount, 0), [filteredSettlements]);
+
+  const volumeAnalysis = useMemo(() => {
+    if (!viewCustomer) return [];
+    const sales = (data.sales || []).filter(s => s.customerId === viewCustomer.id && !s.isMistake);
+    const totals: Record<string, number> = {};
+    
+    sales.forEach(sale => {
+        sale.items.forEach(item => {
+            let unit = (item.unit || 'Units').toLowerCase().trim();
+            // Normalize common variations
+            if (unit === 'kgs' || unit === 'kilogram' || unit === 'kilograms') unit = 'kg';
+            if (unit === 'gm' || unit === 'gms' || unit === 'gram' || unit === 'grams') unit = 'g';
+            if (unit === 'ltr' || unit === 'liter' || unit === 'liters') unit = 'l';
+            if (unit === 'ml' || unit === 'milli') unit = 'ml';
+            if (unit === 'pcs' || unit === 'pieces' || unit === 'nos') unit = 'pcs';
+
+            totals[unit] = (totals[unit] || 0) + Number(item.quantity || 0);
+        });
+    });
+    
+    return Object.entries(totals)
+        .filter(([_, qty]) => qty > 0)
+        .sort((a, b) => b[1] - a[1]);
+  }, [data.sales, viewCustomer]);
+
+  const handleAddSettlement = (e: React.FormEvent) => {
+    e.preventDefault();
+    const amount = Number(newSettlement.amount);
+    if (!amount || amount <= 0) return;
+
+    const settlement: Settlement = {
+      id: crypto.randomUUID(),
+      customerId: 'manual',
+      customerName: newSettlement.customerName,
+      date: newSettlement.date,
+      amount: amount,
+      status: 'Unsettled' as 'Unsettled',
+      notes: newSettlement.notes
+    };
+
+    // Try to link to existing customer
+    const existingCustomer = data.customers.find(c => c.name.toLowerCase() === newSettlement.customerName.toLowerCase());
+    if (existingCustomer) {
+      settlement.customerId = existingCustomer.id;
+    }
+
+    updateData((prev: AppData): AppData => {
+      const newSettlements: Settlement[] = [settlement, ...(prev.settlements || [])];
+      return {
+        ...prev,
+        settlements: newSettlements
+      };
+    });
+
+    setNewSettlement({ customerName: '', amount: '', date: new Date().toISOString().split('T')[0], notes: '' });
+    alert('Settlement record added.');
+  };
+
+  const markAsSettled = (settlement: any) => {
+    if (!confirm(`Mark settlement of ₹${settlement.amount} as settled? This will reduce customer dues.`)) return;
+
+    updateData(prev => {
+      // 1. Update settlement status
+      const updatedSettlements: Settlement[] = (prev.settlements || []).map(s => s.id === settlement.id ? { ...s, status: 'Settled' as const } : s);
+      
+      // 2. Update customer balance if linked
+      let updatedCustomers = [...prev.customers];
+      let updatedSales = [...prev.sales];
+
+      if (settlement.customerId !== 'manual') {
+        const customer = updatedCustomers.find(c => c.id === settlement.customerId);
+        if (customer) {
+           // Reduce pending balance
+           updatedCustomers = updatedCustomers.map(c => c.id === customer.id ? { ...c, pendingBalance: Math.max(0, c.pendingBalance - settlement.amount) } : c);
+           
+           // Apply to pending invoices FIFO (reuse logic)
+           let remainingPayment = settlement.amount;
+           const pendingSales = updatedSales
+             .filter(s => s.customerId === customer.id && s.paymentMethod === 'Pending')
+             .sort((a, b) => a.date.localeCompare(b.date));
+
+           for (let sale of pendingSales) {
+             if (remainingPayment <= 0) break;
+             if (remainingPayment >= sale.totalAmount) {
+               remainingPayment -= sale.totalAmount;
+               const saleIdx = updatedSales.findIndex(s => s.id === sale.id);
+               if (saleIdx !== -1) {
+                 updatedSales[saleIdx] = { 
+                   ...updatedSales[saleIdx], 
+                   paymentMethod: 'Cash', // Assume Cash for settlement
+                   originalPaymentMethod: 'Pending', 
+                   paidDate: settlement.date 
+                 };
+               }
+             }
+           }
+        }
+      }
+
+      return {
+        ...prev,
+        settlements: updatedSettlements,
+        customers: updatedCustomers,
+        sales: updatedSales
+      };
+    });
+  };
+
+  if (viewMode === 'settlements') {
+    return (
+      <div className="space-y-6 animate-in fade-in duration-300">
+        <div className="bg-white p-6 rounded-[32px] border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-center gap-4">
+          <div className="flex items-center gap-4">
+            <button onClick={() => setViewMode('list')} className="p-2 hover:bg-slate-100 rounded-xl transition-colors">
+              <svg className="w-6 h-6 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+            </button>
+            <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Settlement Manager</h2>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+             <div className="flex items-center gap-2 px-4 py-2 bg-emerald-50 border border-emerald-100 rounded-xl">
+               <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Total Settled:</span>
+               <span className="text-sm font-black text-emerald-700">₹{totalSettledAmount.toLocaleString()}</span>
+             </div>
+             <div className="flex items-center gap-2 px-4 py-2 bg-amber-50 border border-amber-100 rounded-xl">
+               <span className="text-[10px] font-black text-amber-600 uppercase tracking-widest">Pending:</span>
+               <span className="text-sm font-black text-amber-700">₹{totalUnsettledAmount.toLocaleString()}</span>
+             </div>
+             <input type="date" value={settlementFilter.start} onChange={e => setSettlementFilter({...settlementFilter, start: e.target.value})} className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none" />
+             <span className="text-slate-400 font-bold text-xs">to</span>
+             <input type="date" value={settlementFilter.end} onChange={e => setSettlementFilter({...settlementFilter, end: e.target.value})} className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none" />
+             <div className="relative">
+                <input type="text" placeholder="Search Customer..." value={settlementSearch} onChange={e => setSettlementSearch(e.target.value)} className="pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold outline-none w-48" />
+                <svg className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+             </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Add Settlement Form */}
+          <div className="lg:col-span-1">
+            <div className="bg-white p-6 rounded-[32px] border border-slate-200 shadow-sm sticky top-6">
+               <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest mb-4">Record New Settlement</h3>
+               <form onSubmit={handleAddSettlement} className="space-y-4">
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Customer Name</label>
+                    <input type="text" required list="customer-names" value={newSettlement.customerName} onChange={e => setNewSettlement({...newSettlement, customerName: e.target.value})} className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none font-bold text-sm" placeholder="Enter name..." />
+                    <datalist id="customer-names">
+                      {data.customers.map(c => <option key={c.id} value={c.name} />)}
+                    </datalist>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Date</label>
+                    <input type="date" required value={newSettlement.date} onChange={e => setNewSettlement({...newSettlement, date: e.target.value})} className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none font-bold text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Amount (₹)</label>
+                    <input type="number" required value={newSettlement.amount} onChange={e => setNewSettlement({...newSettlement, amount: e.target.value})} className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none font-black text-lg text-indigo-600" placeholder="0.00" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Notes</label>
+                    <textarea value={newSettlement.notes} onChange={e => setNewSettlement({...newSettlement, notes: e.target.value})} className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none font-medium text-sm h-20 resize-none" placeholder="Optional details..." />
+                  </div>
+                  <button type="submit" className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-xl shadow-lg transition-all active:scale-95 text-xs uppercase tracking-widest">Save Record</button>
+               </form>
+            </div>
+          </div>
+
+          {/* Settlement List */}
+          <div className="lg:col-span-2">
+            <div className="bg-white rounded-[32px] border border-slate-200 shadow-sm overflow-hidden">
+               <table className="w-full text-left">
+                 <thead className="bg-slate-50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                   <tr>
+                     <th className="px-6 py-4">Date</th>
+                     <th className="px-6 py-4">Customer</th>
+                     <th className="px-6 py-4 text-right">Amount</th>
+                     <th className="px-6 py-4 text-center">Status</th>
+                     <th className="px-6 py-4 text-center">Action</th>
+                   </tr>
+                 </thead>
+                 <tbody className="divide-y divide-slate-100">
+                   {filteredSettlements.map((s: any) => (
+                     <tr key={s.id} className="hover:bg-slate-50 transition-colors">
+                       <td className="px-6 py-4 font-bold text-slate-500 text-xs">{formatDate(s.date)}</td>
+                       <td className="px-6 py-4">
+                         <p className="font-black text-slate-800 text-sm uppercase">{s.customerName}</p>
+                         {s.notes && <p className="text-[10px] text-slate-400 italic truncate max-w-[150px]">{s.notes}</p>}
+                       </td>
+                       <td className="px-6 py-4 text-right font-black text-slate-800">₹{s.amount.toLocaleString()}</td>
+                       <td className="px-6 py-4 text-center">
+                         <span className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border ${s.status === 'Settled' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-amber-50 text-amber-600 border-amber-100'}`}>
+                           {s.status}
+                         </span>
+                       </td>
+                       <td className="px-6 py-4 text-center">
+                         {s.status === 'Unsettled' && (
+                           <button onClick={() => markAsSettled(s)} className="px-3 py-1.5 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-lg text-[9px] font-black uppercase tracking-widest transition-colors">
+                             Mark Settled
+                           </button>
+                         )}
+                       </td>
+                     </tr>
+                   ))}
+                   {filteredSettlements.length === 0 && (
+                     <tr><td colSpan={5} className="py-12 text-center text-slate-300 font-bold uppercase text-xs italic">No records found</td></tr>
+                   )}
+                 </tbody>
+               </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (viewCustomer) {
     const isThermal = printSize === 'Thermal80' || printSize === 'Thermal58';
@@ -520,10 +801,28 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
                         </form>
                     </div>
 
+                    <div className="bg-white rounded-3xl p-8 border border-slate-100 shadow-sm overflow-hidden mb-6">
+                        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">Total Volume Sold</h4>
+                        <div className="grid grid-cols-2 gap-3">
+                           {volumeAnalysis.map(([unit, qty]) => (
+                             <div key={unit} className="bg-slate-50 p-3 rounded-xl border border-slate-100 flex flex-col items-center justify-center text-center">
+                                <span className="text-lg font-black text-slate-800">{qty.toLocaleString()}</span>
+                                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">{unit}</span>
+                             </div>
+                           ))}
+                           {volumeAnalysis.length === 0 && <p className="col-span-2 text-center text-slate-300 text-[10px] font-bold italic py-4">No volume data</p>}
+                        </div>
+                    </div>
+
                     <div className="bg-white rounded-3xl p-8 border border-slate-100 shadow-sm overflow-hidden">
-                        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6">Settlement History</h4>
+                        <div className="flex justify-between items-center mb-6">
+                           <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Settlement History</h4>
+                           <input type="date" value={settlementHistoryDate} onChange={e => setSettlementHistoryDate(e.target.value)} className="px-2 py-1 bg-slate-50 border border-slate-200 rounded-lg text-[10px] font-bold outline-none" />
+                        </div>
                         <div className="space-y-4 max-h-[300px] overflow-y-auto pr-2">
-                           {(Object.entries(settlementGroups) as [string, Sale[]][]).sort(([a], [b]) => b.localeCompare(a)).map(([date, sales]) => {
+                           {(Object.entries(settlementGroups) as [string, Sale[]][])
+                             .filter(([date]) => !settlementHistoryDate || date === settlementHistoryDate)
+                             .sort(([a], [b]) => b.localeCompare(a)).map(([date, sales]) => {
                              const total = sales.reduce((sum, s) => sum + s.totalAmount, 0);
                              return (
                                <div key={date} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 group">
@@ -537,6 +836,7 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
                              );
                            })}
                            {Object.keys(settlementGroups).length === 0 && <p className="text-center py-10 text-slate-300 font-bold uppercase text-[10px]">No settlements recorded</p>}
+                           {Object.keys(settlementGroups).length > 0 && Object.keys(settlementGroups).filter(date => !settlementHistoryDate || date === settlementHistoryDate).length === 0 && <p className="text-center py-10 text-slate-300 font-bold uppercase text-[10px]">No settlements on this date</p>}
                         </div>
                     </div>
                 </div>
@@ -690,6 +990,18 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
                               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Last Interaction</p>
                               <p className="text-lg font-black text-slate-800">{customerSales[0] ? formatDate(customerSales[0].date) : 'Never'}</p>
                            </div>
+                           <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100 col-span-2">
+                               <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Volume Breakdown</p>
+                               <div className="flex flex-wrap gap-4">
+                                  {volumeAnalysis.map(([unit, qty]) => (
+                                    <div key={unit} className="flex items-baseline gap-1">
+                                       <span className="text-xl font-black text-slate-800">{qty.toLocaleString()}</span>
+                                       <span className="text-xs font-bold text-slate-500 uppercase">{unit}</span>
+                                    </div>
+                                  ))}
+                                  {volumeAnalysis.length === 0 && <span className="text-sm font-bold text-slate-400 italic">No data available</span>}
+                               </div>
+                           </div>
                         </div>
                       </div>
                     )}
@@ -740,6 +1052,12 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
               className="px-6 py-3 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl hover:bg-black transition-all"
             >
               Print List
+            </button>
+            <button 
+              onClick={() => setViewMode('settlements')} 
+              className="px-6 py-3 bg-amber-500 hover:bg-amber-600 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl transition-all"
+            >
+              Settlements
             </button>
             <button onClick={() => setShowForm(true)} className="flex items-center justify-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white px-8 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-xl transition-all active:scale-95">
               <IconAdd /><span>Enroll Client</span>

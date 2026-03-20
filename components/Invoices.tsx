@@ -1,16 +1,19 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { AppData, Sale, PaymentMethod } from '../types';
-import { IconPrint, IconEdit, IconTrash } from './Icons';
+import { IconPrint, IconEdit, IconTrash, IconDuplicate } from './Icons';
 
 interface InvoicesProps {
   data: AppData;
   updateData: (updater: (prev: AppData) => AppData) => void;
   initialSale?: Sale | null;
   onResetInitialSale?: () => void;
+  onDuplicate?: (sale: Sale) => void;
 }
 
 type PrintMode = 'A4' | 'Thermal80' | 'Thermal58' | 'Summary';
 type StatusFilter = 'All' | 'Paid' | 'Pending';
+type InvoiceSortKey = 'date' | 'amount' | 'customer' | 'invoice';
+type SortDirection = 'asc' | 'desc';
 
 const formatDate = (dateStr: string) => {
   if (!dateStr) return '';
@@ -26,13 +29,16 @@ const applyTemplate = (text: string, sale: Sale) => {
     .replace(/{{date}}/g, formatDate(sale.date));
 };
 
-const Invoices: React.FC<InvoicesProps> = ({ data, updateData, initialSale, onResetInitialSale }) => {
+const Invoices: React.FC<InvoicesProps> = ({ data, updateData, initialSale, onResetInitialSale, onDuplicate }) => {
   const [selectedInvoice, setSelectedInvoice] = useState<Sale | null>(null);
   const [printMode, setPrintMode] = useState<PrintMode>('Thermal80');
   const [includeDues, setIncludeDues] = useState(false);
   const [includeOwnerCopy, setIncludeOwnerCopy] = useState(false);
   const [isPrintingSummary, setIsPrintingSummary] = useState(false);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('All');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [sortKey, setSortKey] = useState<InvoiceSortKey>('date');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   
   const [isEditing, setIsEditing] = useState(false);
   const [editFormData, setEditFormData] = useState({
@@ -55,8 +61,86 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData, initialSale, onRe
     } else if (statusFilter === 'Pending') {
       sales = sales.filter(s => s.paymentMethod === 'Pending');
     }
-    return sales.sort((a, b) => b.date.localeCompare(a.date));
-  }, [data.sales, statusFilter]);
+    
+    if (searchTerm) {
+      const searchLower = searchTerm.toLowerCase();
+      sales = sales.filter(s => 
+        s.customerName.toLowerCase().includes(searchLower) ||
+        s.invoiceNumber.toLowerCase().includes(searchLower) ||
+        (s.customerContact && s.customerContact.includes(searchTerm))
+      );
+    }
+
+    return sales.sort((a, b) => {
+      let comparison = 0;
+      switch (sortKey) {
+        case 'date':
+          comparison = a.date.localeCompare(b.date);
+          break;
+        case 'amount':
+          comparison = a.totalAmount - b.totalAmount;
+          break;
+        case 'customer':
+          comparison = a.customerName.localeCompare(b.customerName);
+          break;
+        case 'invoice':
+          comparison = a.invoiceNumber.localeCompare(b.invoiceNumber);
+          break;
+      }
+      return sortDirection === 'asc' ? comparison : -comparison;
+    });
+  }, [data.sales, statusFilter, searchTerm, sortKey, sortDirection]);
+
+  const toggleSort = (key: InvoiceSortKey) => {
+    if (sortKey === key) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortKey(key);
+      setSortDirection(key === 'date' || key === 'amount' ? 'desc' : 'asc');
+    }
+  };
+
+  const SortButton: React.FC<{ label: string; keyName: InvoiceSortKey }> = ({ label, keyName }) => (
+    <button 
+      onClick={() => toggleSort(keyName)}
+      className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all flex items-center space-x-1 border shadow-sm ${
+        sortKey === keyName 
+          ? 'bg-indigo-600 text-white border-indigo-700' 
+          : 'bg-white text-slate-500 border-slate-200 hover:border-indigo-300 hover:text-indigo-600'
+      }`}
+    >
+      <span>{label}</span>
+      <span className={`transition-transform duration-200 ${sortKey === keyName && sortDirection === 'desc' ? 'rotate-180' : ''}`}>
+        {sortKey === keyName ? (
+          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 15l7-7 7 7" /></svg>
+        ) : (
+          <svg className="w-3 h-3 opacity-20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M8 9l4-4 4 4m0 6l-4 4-4-4" /></svg>
+        )}
+      </span>
+    </button>
+  );
+
+  const volumeAnalysis = useMemo(() => {
+    const totals: Record<string, number> = {};
+    
+    filteredSales.forEach(sale => {
+        sale.items.forEach(item => {
+            let unit = (item.unit || 'Units').toLowerCase().trim();
+            // Normalize common variations
+            if (unit === 'kgs' || unit === 'kilogram' || unit === 'kilograms') unit = 'kg';
+            if (unit === 'gm' || unit === 'gms' || unit === 'gram' || unit === 'grams') unit = 'g';
+            if (unit === 'ltr' || unit === 'liter' || unit === 'liters') unit = 'l';
+            if (unit === 'ml' || unit === 'milli') unit = 'ml';
+            if (unit === 'pcs' || unit === 'pieces' || unit === 'nos') unit = 'pcs';
+
+            totals[unit] = (totals[unit] || 0) + Number(item.quantity || 0);
+        });
+    });
+    
+    return Object.entries(totals)
+        .filter(([_, qty]) => qty > 0)
+        .sort((a, b) => b[1] - a[1]);
+  }, [filteredSales]);
 
   const handlePrint = () => {
     window.print();
@@ -315,16 +399,33 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData, initialSale, onRe
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row justify-between items-center bg-white p-6 rounded-3xl border border-slate-100 gap-4">
-        <div className="flex flex-col md:flex-row items-center gap-4">
-          <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight">Invoice History</h3>
-          <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200">
+      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center bg-white p-6 rounded-3xl border border-slate-100 gap-4">
+        <div className="flex flex-col md:flex-row items-center gap-4 w-full lg:w-auto">
+          <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight whitespace-nowrap">Invoice History</h3>
+          <div className="relative w-full md:w-64">
+            <svg className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+            <input type="text" placeholder="Search invoices..." className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 font-medium text-sm" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+          </div>
+          <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 shrink-0">
             {(['All', 'Paid', 'Pending'] as StatusFilter[]).map(f => (
               <button key={f} onClick={() => setStatusFilter(f)} className={`px-4 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${statusFilter === f ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>{f}</button>
             ))}
           </div>
+          {statusFilter === 'Pending' && (
+            <div className="flex px-4 py-2 bg-rose-50 border border-rose-100 rounded-xl items-center gap-2 shrink-0">
+              <span className="text-[10px] font-black uppercase text-rose-500 tracking-widest">Pending Total:</span>
+              <span className="text-sm font-black text-rose-700">₹{filteredSales.reduce((sum, s) => sum + s.totalAmount, 0).toLocaleString()}</span>
+            </div>
+          )}
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto justify-start lg:justify-end">
+          <div className="flex items-center space-x-2 bg-slate-50 p-1 rounded-xl border border-slate-100 overflow-x-auto mr-2">
+             <span className="text-[9px] font-black text-slate-400 uppercase ml-2 mr-1 shrink-0">Sort:</span>
+             <SortButton label="Date" keyName="date" />
+             <SortButton label="Amount" keyName="amount" />
+             <SortButton label="Customer" keyName="customer" />
+             <SortButton label="Inv #" keyName="invoice" />
+          </div>
           <button onClick={() => {
             const rows = [[`Invoice Export (${statusFilter}) - A M Food Processing`],['Date', 'Invoice #', 'Customer', 'Status', 'Amount (₹)']];
             filteredSales.forEach(s => { rows.push([formatDate(s.date), s.invoiceNumber, s.customerName, s.paymentMethod, s.totalAmount.toString()]); });
@@ -339,10 +440,23 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData, initialSale, onRe
           <button onClick={() => { setIsPrintingSummary(true); setTimeout(() => { window.print(); setIsPrintingSummary(false); }, 500); }} className="bg-slate-900 text-white px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all">Print Summary</button>
         </div>
       </div>
+
+      {/* Volume Summary */}
+      {volumeAnalysis.length > 0 && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4 animate-in fade-in duration-300">
+          {volumeAnalysis.map(([unit, qty]) => (
+            <div key={unit} className="bg-white px-4 py-3 rounded-2xl border border-slate-200 shadow-sm flex flex-col items-center justify-center">
+              <span className="text-lg font-black text-slate-800">{qty.toLocaleString()}</span>
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{unit} Sold</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="bg-white rounded-[40px] shadow-sm border border-slate-200 overflow-hidden">
         <table className="w-full text-left">
           <thead className="bg-slate-50 border-b text-[10px] font-black text-slate-400 uppercase tracking-widest"><tr><th className="px-8 py-5">Date</th><th className="px-8 py-5">Customer</th><th className="px-8 py-5">Status</th><th className="px-8 py-5 text-right">Amount</th><th className="px-8 py-5 text-center">Actions</th></tr></thead>
-          <tbody className="divide-y divide-slate-100">{filteredSales.map((sale) => (<tr key={sale.id} className="hover:bg-slate-50 transition-colors"><td className="px-8 py-5 text-xs font-bold text-slate-500">{formatDate(sale.date)}</td><td className="px-8 py-5 text-sm font-black text-slate-800 uppercase">{sale.customerName}</td><td className="px-8 py-5"><span className={`text-[9px] font-black uppercase px-2 py-1 rounded border ${sale.paymentMethod === 'Pending' ? 'bg-orange-50 text-orange-600 border-orange-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'}`}>{sale.paymentMethod}</span></td><td className="px-8 py-5 text-right font-black text-slate-800">₹{sale.totalAmount.toLocaleString()}</td><td className="px-8 py-5 text-center flex justify-center space-x-2"><button onClick={() => setSelectedInvoice(sale)} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all" title="View & Print"><IconPrint className="w-5 h-5" /></button>{isAdmin && (<><button onClick={() => handleQuickEdit(sale)} className="p-2 text-amber-500 hover:bg-amber-50 rounded-xl transition-all" title="Edit Invoice"><IconEdit className="w-5 h-5" /></button><button onClick={() => deleteInvoice(sale.id)} className="p-2 text-rose-400 hover:bg-rose-50 rounded-xl transition-all" title="Delete Bill"><IconTrash className="w-5 h-5" /></button></>)}</td></tr>))}</tbody>
+          <tbody className="divide-y divide-slate-100">{filteredSales.map((sale) => (<tr key={sale.id} className="hover:bg-slate-50 transition-colors"><td className="px-8 py-5 text-xs font-bold text-slate-500">{formatDate(sale.date)}</td><td className="px-8 py-5 text-sm font-black text-slate-800 uppercase">{sale.customerName}</td><td className="px-8 py-5"><span className={`text-[9px] font-black uppercase px-2 py-1 rounded border ${sale.paymentMethod === 'Pending' ? 'bg-orange-50 text-orange-600 border-orange-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'}`}>{sale.paymentMethod}</span></td><td className="px-8 py-5 text-right font-black text-slate-800">₹{sale.totalAmount.toLocaleString()}</td><td className="px-8 py-5 text-center flex justify-center space-x-2"><button onClick={() => setSelectedInvoice(sale)} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all" title="View & Print"><IconPrint className="w-5 h-5" /></button><button onClick={() => onDuplicate?.(sale)} className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-xl transition-all" title="Duplicate Bill"><IconDuplicate className="w-5 h-5" /></button>{isAdmin && (<><button onClick={() => handleQuickEdit(sale)} className="p-2 text-amber-500 hover:bg-amber-50 rounded-xl transition-all" title="Edit Invoice"><IconEdit className="w-5 h-5" /></button><button onClick={() => deleteInvoice(sale.id)} className="p-2 text-rose-400 hover:bg-rose-50 rounded-xl transition-all" title="Delete Bill"><IconTrash className="w-5 h-5" /></button></>)}</td></tr>))}</tbody>
         </table>
       </div>
     </div>

@@ -16,6 +16,7 @@ const formatDate = (dateStr: string) => {
 const Reports: React.FC<ReportsProps> = ({ data }) => {
   const [reportRange, setReportRange] = useState('All Time');
   const [isPrinting, setIsPrinting] = useState(false);
+  const [volumePeriod, setVolumePeriod] = useState<'monthly' | 'weekly'>('monthly');
 
   const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
 
@@ -34,19 +35,54 @@ const Reports: React.FC<ReportsProps> = ({ data }) => {
   const monthlyData: any[] = [];
   const monthMap = new Map();
 
+  const getWeekString = (dateStr: string) => {
+    const d = new Date(dateStr);
+    const year = d.getFullYear();
+    const firstDay = new Date(year, 0, 1);
+    const pastDaysOfYear = (d.getTime() - firstDay.getTime()) / 86400000;
+    const weekNum = Math.ceil((pastDaysOfYear + firstDay.getDay() + 1) / 7);
+    return `${year}-W${weekNum.toString().padStart(2, '0')}`;
+  };
+
+  const weekMap = new Map();
+
   data.sales.filter(s => !s.isMistake).forEach(s => {
     const month = s.date.substring(0, 7); // YYYY-MM
-    if (!monthMap.has(month)) monthMap.set(month, { month, sales: 0, expenses: 0 });
+    const week = getWeekString(s.date);
+    
+    if (!monthMap.has(month)) monthMap.set(month, { month, sales: 0, expenses: 0, volumeKg: 0 });
+    if (!weekMap.has(week)) weekMap.set(week, { week, sales: 0, expenses: 0, volumeKg: 0 });
+    
     monthMap.get(month).sales += s.totalAmount;
+    weekMap.get(week).sales += s.totalAmount;
+
+    let saleVolume = 0;
+    s.items.forEach(item => {
+      const unit = item.unit.toLowerCase();
+      if (unit === 'kg' || unit === 'kgs') {
+        saleVolume += item.quantity;
+      } else if (unit === 'gram' || unit === 'g' || unit === 'grams') {
+        saleVolume += item.quantity / 1000;
+      }
+    });
+    
+    monthMap.get(month).volumeKg += saleVolume;
+    weekMap.get(week).volumeKg += saleVolume;
   });
 
   data.expenses.forEach(e => {
     const month = e.date.substring(0, 7);
-    if (!monthMap.has(month)) monthMap.set(month, { month, sales: 0, expenses: 0 });
+    const week = getWeekString(e.date);
+    
+    if (!monthMap.has(month)) monthMap.set(month, { month, sales: 0, expenses: 0, volumeKg: 0 });
+    if (!weekMap.has(week)) weekMap.set(week, { week, sales: 0, expenses: 0, volumeKg: 0 });
+    
     monthMap.get(month).expenses += e.amount;
+    weekMap.get(week).expenses += e.amount;
   });
 
   const sortedMonths = Array.from(monthMap.values()).sort((a, b) => a.month.localeCompare(b.month));
+  const sortedWeeks = Array.from(weekMap.values()).sort((a, b) => a.week.localeCompare(b.week));
 
   // Expense Categories
   const expenseCategories: any[] = [];
@@ -69,11 +105,19 @@ const Reports: React.FC<ReportsProps> = ({ data }) => {
       ['Estimated Inventory Value', inventoryValue],
       [''],
       ['MONTHLY DATA'],
-      ['Month', 'Sales', 'Expenses', 'Profit']
+      ['Month', 'Sales', 'Expenses', 'Profit', 'Volume (Kg)']
     ];
 
     sortedMonths.forEach(m => {
-      rows.push([m.month, m.sales, m.expenses, m.sales - m.expenses]);
+      rows.push([m.month, m.sales, m.expenses, m.sales - m.expenses, m.volumeKg.toFixed(2)]);
+    });
+
+    rows.push(['']);
+    rows.push(['WEEKLY DATA']);
+    rows.push(['Week', 'Sales', 'Expenses', 'Profit', 'Volume (Kg)']);
+
+    sortedWeeks.forEach(w => {
+      rows.push([w.week, w.sales, w.expenses, w.sales - w.expenses, w.volumeKg.toFixed(2)]);
     });
 
     const csvContent = "data:text/csv;charset=utf-8," + rows.map(r => r.join(",")).join("\n");
@@ -166,6 +210,57 @@ const Reports: React.FC<ReportsProps> = ({ data }) => {
         </div>
       </div>
 
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 no-print">
+        <div className="bg-white p-6 rounded-[40px] shadow-sm border border-slate-200">
+          <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] mb-6">Sales vs Expenses (Weekly)</h4>
+          <div className="h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={sortedWeeks}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                <XAxis dataKey="week" axisLine={false} tickLine={false} tick={{fontSize: 10, fontWeight: 700, fill: '#94a3b8'}} />
+                <YAxis axisLine={false} tickLine={false} tick={{fontSize: 10, fontWeight: 700, fill: '#94a3b8'}} />
+                <Tooltip cursor={{fill: '#f8fafc'}} contentStyle={{borderRadius: '24px', border: 'none', boxShadow: '0 20px 40px rgba(0,0,0,0.1)'}} />
+                <Legend iconType="circle" wrapperStyle={{paddingTop: '20px', fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase'}} />
+                <Bar dataKey="sales" fill="#6366f1" radius={[8, 8, 0, 0]} name="Sales" />
+                <Bar dataKey="expenses" fill="#ef4444" radius={[8, 8, 0, 0]} name="Expenses" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div className="bg-white p-6 rounded-[40px] shadow-sm border border-slate-200">
+          <div className="flex justify-between items-center mb-6">
+            <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">Volume Sold (Kg)</h4>
+            <div className="flex bg-slate-100 p-1 rounded-xl">
+              <button 
+                onClick={() => setVolumePeriod('monthly')}
+                className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${volumePeriod === 'monthly' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+              >
+                Monthly
+              </button>
+              <button 
+                onClick={() => setVolumePeriod('weekly')}
+                className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${volumePeriod === 'weekly' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+              >
+                Weekly
+              </button>
+            </div>
+          </div>
+          <div className="h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={volumePeriod === 'monthly' ? sortedMonths : sortedWeeks}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                <XAxis dataKey={volumePeriod === 'monthly' ? "month" : "week"} axisLine={false} tickLine={false} tick={{fontSize: 10, fontWeight: 700, fill: '#94a3b8'}} />
+                <YAxis axisLine={false} tickLine={false} tick={{fontSize: 10, fontWeight: 700, fill: '#94a3b8'}} />
+                <Tooltip cursor={{fill: '#f8fafc'}} contentStyle={{borderRadius: '24px', border: 'none', boxShadow: '0 20px 40px rgba(0,0,0,0.1)'}} />
+                <Legend iconType="circle" wrapperStyle={{paddingTop: '20px', fontSize: '10px', fontWeight: 'bold', textTransform: 'uppercase'}} />
+                <Bar dataKey="volumeKg" fill="#10b981" radius={[8, 8, 0, 0]} name="Volume (Kg)" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+
       {/* KPI Summary Banner */}
       <div className={`rounded-[50px] p-10 text-white shadow-2xl relative overflow-hidden no-print ${data.theme === 'dynamic' ? 'bg-dynamic-primary' : 'bg-indigo-900'}`}>
         <div className="absolute top-0 right-0 w-[400px] h-[400px] bg-white/10 rounded-full blur-[120px] -mr-[150px] -mt-[150px]"></div>
@@ -238,6 +333,7 @@ const Reports: React.FC<ReportsProps> = ({ data }) => {
                        <th className="p-2 text-right text-[10px] uppercase font-black">Inflow (₹)</th>
                        <th className="p-2 text-right text-[10px] uppercase font-black">Outflow (₹)</th>
                        <th className="p-2 text-right text-[10px] uppercase font-black">Margin (₹)</th>
+                       <th className="p-2 text-right text-[10px] uppercase font-black">Volume (Kg)</th>
                     </tr>
                  </thead>
                  <tbody>
@@ -247,9 +343,38 @@ const Reports: React.FC<ReportsProps> = ({ data }) => {
                           <td className="p-2 text-xs text-right">₹{m.sales.toLocaleString()}</td>
                           <td className="p-2 text-xs text-right">₹{m.expenses.toLocaleString()}</td>
                           <td className="p-2 text-xs text-right font-bold text-indigo-700">₹{(m.sales - m.expenses).toLocaleString()}</td>
+                          <td className="p-2 text-xs text-right font-bold text-emerald-700">{m.volumeKg.toFixed(2)}</td>
                        </tr>
                     )) : (
-                       <tr><td colSpan={4} className="p-10 text-center text-xs font-bold text-gray-400">NO FINANCIAL HISTORY RECORDED</td></tr>
+                       <tr><td colSpan={5} className="p-10 text-center text-xs font-bold text-gray-400">NO FINANCIAL HISTORY RECORDED</td></tr>
+                    )}
+                 </tbody>
+              </table>
+           </div>
+
+           <div className="mb-12">
+              <h3 className="text-sm font-black uppercase border-b-2 border-black pb-2 mb-4 tracking-widest">Weekly Growth Matrix</h3>
+              <table className="w-full border-collapse">
+                 <thead>
+                    <tr className="bg-gray-100 border-b-2 border-black">
+                       <th className="p-2 text-left text-[10px] uppercase font-black">Fiscal Week</th>
+                       <th className="p-2 text-right text-[10px] uppercase font-black">Inflow (₹)</th>
+                       <th className="p-2 text-right text-[10px] uppercase font-black">Outflow (₹)</th>
+                       <th className="p-2 text-right text-[10px] uppercase font-black">Margin (₹)</th>
+                       <th className="p-2 text-right text-[10px] uppercase font-black">Volume (Kg)</th>
+                    </tr>
+                 </thead>
+                 <tbody>
+                    {sortedWeeks.length > 0 ? sortedWeeks.map((w, i) => (
+                       <tr key={i} className="border-b border-gray-300">
+                          <td className="p-2 text-xs font-bold">{w.week}</td>
+                          <td className="p-2 text-xs text-right">₹{w.sales.toLocaleString()}</td>
+                          <td className="p-2 text-xs text-right">₹{w.expenses.toLocaleString()}</td>
+                          <td className="p-2 text-xs text-right font-bold text-indigo-700">₹{(w.sales - w.expenses).toLocaleString()}</td>
+                          <td className="p-2 text-xs text-right font-bold text-emerald-700">{w.volumeKg.toFixed(2)}</td>
+                       </tr>
+                    )) : (
+                       <tr><td colSpan={5} className="p-10 text-center text-xs font-bold text-gray-400">NO FINANCIAL HISTORY RECORDED</td></tr>
                     )}
                  </tbody>
               </table>

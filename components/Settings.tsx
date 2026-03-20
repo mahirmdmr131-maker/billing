@@ -303,6 +303,36 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
                     </div>
                  </div>
 
+                 <section className="space-y-4 pt-4 border-t border-slate-100">
+                    <div className="flex justify-between items-center">
+                       <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Custom Fields</label>
+                       <button onClick={() => updateTemplate('customFields', [...(data.templateSettings.customFields || []), { id: crypto.randomUUID(), label: 'New Field', value: '' }])} className="text-[9px] font-black text-indigo-600 uppercase hover:underline">+ Add Field</button>
+                    </div>
+                    <div className="space-y-3">
+                       {data.templateSettings.customFields?.map((field, index) => (
+                          <div key={field.id} className="flex gap-2 items-center">
+                             <input type="text" value={field.label} onChange={e => {
+                                const newFields = [...(data.templateSettings.customFields || [])];
+                                newFields[index] = { ...field, label: e.target.value };
+                                updateTemplate('customFields', newFields);
+                             }} className="w-1/3 p-2 bg-slate-50 border border-slate-200 rounded-lg text-[10px] font-bold outline-none focus:border-indigo-400" placeholder="Label" />
+                             <input type="text" value={field.value} onChange={e => {
+                                const newFields = [...(data.templateSettings.customFields || [])];
+                                newFields[index] = { ...field, value: e.target.value };
+                                updateTemplate('customFields', newFields);
+                             }} className="flex-1 p-2 bg-slate-50 border border-slate-200 rounded-lg text-[10px] font-bold outline-none focus:border-indigo-400" placeholder="Value (supports {{inv_number}} etc)" />
+                             <button onClick={() => {
+                                const newFields = (data.templateSettings.customFields || []).filter(f => f.id !== field.id);
+                                updateTemplate('customFields', newFields);
+                             }} className="p-2 text-rose-400 hover:text-rose-600"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
+                          </div>
+                       ))}
+                       {(!data.templateSettings.customFields || data.templateSettings.customFields.length === 0) && (
+                          <p className="text-[9px] text-slate-300 italic text-center">No custom fields added</p>
+                       )}
+                    </div>
+                 </section>
+
                  <button onClick={() => updateData(prev => ({...prev, templateSettings: {
                     applyToPrinting: true, showLogo: true, logoSize: 80, showSKU: false, showRatePerUnit: true, showDues: true,
                     footerText: "Thank you for your business!", termsText: "Goods once sold will not be returned.",

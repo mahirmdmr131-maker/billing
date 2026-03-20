@@ -6,6 +6,7 @@ import { IconAdd, IconProducts } from './Icons';
 interface ProductsProps {
   data: AppData;
   updateData: (updater: (prev: AppData) => AppData) => void;
+  initialSearchTerm?: string;
 }
 
 const formatDate = (dateStr: string) => {
@@ -16,11 +17,15 @@ const formatDate = (dateStr: string) => {
   return dateStr.split('-').reverse().join('/');
 };
 
-const Products: React.FC<ProductsProps> = ({ data, updateData }) => {
+const Products: React.FC<ProductsProps> = ({ data, updateData, initialSearchTerm }) => {
   const [showForm, setShowForm] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(initialSearchTerm || '');
   const [viewingHistoryId, setViewingHistoryId] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (initialSearchTerm) setSearchTerm(initialSearchTerm);
+  }, [initialSearchTerm]);
   
   const [formData, setFormData] = useState({
     name: '',
@@ -28,7 +33,8 @@ const Products: React.FC<ProductsProps> = ({ data, updateData }) => {
     defaultRate: '',
     wholesaleRate: '',
     currentStock: '',
-    minThreshold: ''
+    minThreshold: '',
+    rateDate: new Date().toISOString().split('T')[0]
   });
 
   const isAdmin = data.currentUser?.role === 'admin';
@@ -42,7 +48,7 @@ const Products: React.FC<ProductsProps> = ({ data, updateData }) => {
     e.preventDefault();
     const newRate = Number(formData.defaultRate) || 0;
     const newWholesale = Number(formData.wholesaleRate) || 0;
-    const now = new Date().toISOString();
+    const rateDate = formData.rateDate || new Date().toISOString().split('T')[0];
 
     updateData(prev => {
       let updatedProducts;
@@ -51,7 +57,11 @@ const Products: React.FC<ProductsProps> = ({ data, updateData }) => {
           if (p.id === editingProduct.id) {
             const history = [...(p.priceHistory || [])];
             if (p.defaultRate !== newRate) {
-              history.unshift({ rate: p.defaultRate, date: now });
+              history.unshift({ rate: newRate, date: rateDate });
+            } else if (history.length > 0 && history[0].rate === newRate) {
+              history[0] = { ...history[0], date: rateDate };
+            } else if (history.length === 0) {
+              history.unshift({ rate: newRate, date: rateDate });
             }
             return {
               ...p,
@@ -75,7 +85,7 @@ const Products: React.FC<ProductsProps> = ({ data, updateData }) => {
           wholesaleRate: newWholesale,
           currentStock: formData.currentStock === '' ? undefined : Number(formData.currentStock),
           minThreshold: formData.minThreshold === '' ? undefined : Number(formData.minThreshold),
-          priceHistory: []
+          priceHistory: [{ rate: newRate, date: rateDate }]
         };
         updatedProducts = [newProduct, ...prev.products];
       }
@@ -92,7 +102,8 @@ const Products: React.FC<ProductsProps> = ({ data, updateData }) => {
       defaultRate: product.defaultRate.toString(),
       wholesaleRate: product.wholesaleRate?.toString() || '',
       currentStock: product.currentStock?.toString() || '',
-      minThreshold: product.minThreshold?.toString() || ''
+      minThreshold: product.minThreshold?.toString() || '',
+      rateDate: new Date().toISOString().split('T')[0]
     });
     setShowForm(true);
   };
@@ -100,7 +111,7 @@ const Products: React.FC<ProductsProps> = ({ data, updateData }) => {
   const closeForm = () => {
     setShowForm(false);
     setEditingProduct(null);
-    setFormData({ name: '', unit: 'kg', defaultRate: '', wholesaleRate: '', currentStock: '', minThreshold: '' });
+    setFormData({ name: '', unit: 'kg', defaultRate: '', wholesaleRate: '', currentStock: '', minThreshold: '', rateDate: new Date().toISOString().split('T')[0] });
   };
 
   const deleteProduct = (id: string) => {
@@ -189,10 +200,12 @@ const Products: React.FC<ProductsProps> = ({ data, updateData }) => {
                   <p className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] mb-3">Rate Timeline</p>
                   <div className="space-y-2 max-h-32 overflow-y-auto pr-1">
                     <div className="flex justify-between items-center bg-indigo-50 p-2 rounded-lg border border-indigo-100">
-                        <span className="text-[10px] font-black text-indigo-600 uppercase">Current</span>
+                        <span className="text-[10px] font-black text-indigo-600 uppercase">
+                          Current {product.priceHistory?.[0]?.rate === product.defaultRate ? `(${formatDate(product.priceHistory?.[0]?.date)})` : ''}
+                        </span>
                         <span className="text-[10px] font-black text-indigo-700">₹{product.defaultRate}</span>
                     </div>
-                    {product.priceHistory?.map((h, i) => (
+                    {product.priceHistory?.filter((h, i) => !(i === 0 && h.rate === product.defaultRate)).map((h, i) => (
                       <div key={i} className="flex justify-between items-center bg-slate-50 p-2 rounded-lg border border-slate-100 opacity-70">
                         <span className="text-[10px] font-bold text-slate-400 uppercase">{formatDate(h.date)}</span>
                         <span className="text-[10px] font-black text-slate-600">₹{h.rate}</span>
@@ -222,7 +235,7 @@ const Products: React.FC<ProductsProps> = ({ data, updateData }) => {
                   <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Product Name *</label>
                   <input type="text" required value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} className="w-full px-4 py-3 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none font-bold uppercase" placeholder="e.g. PREMIUM BASMATI" />
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-3 gap-4">
                     <div>
                       <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Retail Rate (₹)</label>
                       <input type="number" step="any" required placeholder="0.00" value={formData.defaultRate} onChange={e => setFormData({ ...formData, defaultRate: e.target.value })} className="w-full px-4 py-3 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none font-black text-indigo-600 uppercase" />
@@ -230,6 +243,10 @@ const Products: React.FC<ProductsProps> = ({ data, updateData }) => {
                     <div>
                       <label className="block text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1">Wholesale Rate (₹)</label>
                       <input type="number" step="any" required placeholder="0.00" value={formData.wholesaleRate} onChange={e => setFormData({ ...formData, wholesaleRate: e.target.value })} className="w-full px-4 py-3 border border-emerald-100 bg-emerald-50/30 rounded-2xl focus:ring-2 focus:ring-emerald-500 outline-none font-black text-emerald-600 uppercase" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Effective Date</label>
+                      <input type="date" required value={formData.rateDate} onChange={e => setFormData({ ...formData, rateDate: e.target.value })} className="w-full px-4 py-3 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none font-bold uppercase" />
                     </div>
                 </div>
                 <div className="grid grid-cols-3 gap-4">

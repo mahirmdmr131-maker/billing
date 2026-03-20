@@ -8,6 +8,8 @@ interface SalesProps {
   onNavigateToInvoices: () => void;
   preSelectedCustomerId?: string | null;
   onClearPreSelect?: () => void;
+  initialSaleToDuplicate?: Sale | null;
+  onClearDuplicate?: () => void;
 }
 
 type PrintSize = 'A4' | 'Thermal80' | 'Thermal58';
@@ -27,7 +29,7 @@ const applyTemplate = (text: string, sale: Sale) => {
     .replace(/{{date}}/g, formatDate(sale.date));
 };
 
-const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices, preSelectedCustomerId, onClearPreSelect }) => {
+const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices, preSelectedCustomerId, onClearPreSelect, initialSaleToDuplicate, onClearDuplicate }) => {
   const [showAddForm, setShowAddForm] = useState(false);
   const [lastSavedSale, setLastSavedSale] = useState<Sale | null>(null);
   const [printSize, setPrintSize] = useState<PrintSize>('Thermal80');
@@ -46,10 +48,17 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices, p
   const [isProductForced, setIsProductForced] = useState(false);
   const [productLazyLimit, setProductLazyLimit] = useState(50);
 
+  const [historyDateRange, setHistoryDateRange] = useState({ start: '', end: '' });
+  const [historyStatus, setHistoryStatus] = useState<'All' | 'Paid' | 'Pending'>('All');
+  const [historySortKey, setHistorySortKey] = useState<'date' | 'invoiceNumber' | 'customerName' | 'totalAmount'>('date');
+  const [historySortDir, setHistorySortDir] = useState<'asc' | 'desc'>('desc');
+
   const [formData, setFormData] = useState({
     customerId: '',
     customerName: '',
+    customerContact: '',
     date: new Date().toISOString().split('T')[0],
+    dueDate: '',
     paymentMethod: 'Cash' as PaymentMethod,
     cashPaid: '',
     tier: 'Retail' as PriceTier,
@@ -60,13 +69,37 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices, p
     if (preSelectedCustomerId) {
       const customer = data.customers.find(c => c.id === preSelectedCustomerId);
       if (customer) {
-        setFormData(prev => ({ ...prev, customerId: customer.id, customerName: customer.name }));
+        setFormData(prev => ({ ...prev, customerId: customer.id, customerName: customer.name, customerContact: customer.phone }));
         setCustomerSearch(customer.name);
         setShowAddForm(true);
         onClearPreSelect?.();
       }
     }
   }, [preSelectedCustomerId, data.customers, onClearPreSelect]);
+
+  useEffect(() => {
+    if (initialSaleToDuplicate) {
+      setFormData({
+        customerId: initialSaleToDuplicate.customerId || '',
+        customerName: initialSaleToDuplicate.customerName,
+        customerContact: initialSaleToDuplicate.customerContact || '',
+        date: new Date().toISOString().split('T')[0],
+        dueDate: initialSaleToDuplicate.dueDate || '',
+        paymentMethod: 'Cash',
+        cashPaid: '',
+        tier: 'Retail',
+        items: initialSaleToDuplicate.items.map(item => ({
+          productName: item.productName,
+          quantity: item.quantity,
+          unit: item.unit,
+          rate: item.rate
+        }))
+      });
+      setCustomerSearch(initialSaleToDuplicate.customerName);
+      setShowAddForm(true);
+      onClearDuplicate?.();
+    }
+  }, [initialSaleToDuplicate, onClearDuplicate]);
 
   const filteredCustomers = useMemo(() => {
     const list = [...data.customers].sort((a, b) => a.name.localeCompare(b.name));
@@ -82,6 +115,51 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices, p
     return list.filter(p => p.name.toLowerCase().includes(productSearch.toLowerCase()) || (p.code && p.code.toLowerCase().includes(productSearch.toLowerCase()))).slice(0, productLazyLimit);
   }, [data.products, productSearch, isProductForced, productLazyLimit]);
 
+  const filteredHistory = useMemo(() => {
+    let list = data.sales.filter(s => !s.isMistake);
+    
+    if (historyStatus === 'Paid') {
+      list = list.filter(s => s.paymentMethod !== 'Pending');
+    } else if (historyStatus === 'Pending') {
+      list = list.filter(s => s.paymentMethod === 'Pending');
+    }
+
+    if (historyDateRange.start) {
+      list = list.filter(s => s.date >= historyDateRange.start);
+    }
+    if (historyDateRange.end) {
+      list = list.filter(s => s.date <= historyDateRange.end);
+    }
+
+    return list.sort((a, b) => {
+      let comparison = 0;
+      switch (historySortKey) {
+        case 'date':
+          comparison = a.date.localeCompare(b.date);
+          break;
+        case 'invoiceNumber':
+          comparison = a.invoiceNumber.localeCompare(b.invoiceNumber);
+          break;
+        case 'customerName':
+          comparison = a.customerName.localeCompare(b.customerName);
+          break;
+        case 'totalAmount':
+          comparison = a.totalAmount - b.totalAmount;
+          break;
+      }
+      return historySortDir === 'asc' ? comparison : -comparison;
+    });
+  }, [data.sales, historyStatus, historyDateRange, historySortKey, historySortDir]);
+
+  const toggleHistorySort = (key: 'date' | 'invoiceNumber' | 'customerName' | 'totalAmount') => {
+    if (historySortKey === key) {
+      setHistorySortDir(historySortDir === 'asc' ? 'desc' : 'asc');
+    } else {
+      setHistorySortKey(key);
+      setHistorySortDir(key === 'date' || key === 'totalAmount' ? 'desc' : 'asc');
+    }
+  };
+
   const UNITS = ['kg', 'gram', 'no.', 'pkt', 'box', 'ltr', 'ml', 'bag', 'tin'];
 
   const calculateItemTotal = (qty: number, rate: number, unit: string) => {
@@ -94,7 +172,7 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices, p
   const currentTotal = formData.items.reduce((sum, i) => sum + calculateItemTotal(Number(i.quantity || 0), Number(i.rate || 0), i.unit || 'kg'), 0);
 
   const resetForm = () => {
-    setFormData({ customerId: '', customerName: '', date: new Date().toISOString().split('T')[0], paymentMethod: 'Cash', cashPaid: '', tier: 'Retail', items: [{ productName: '', quantity: 1, unit: 'kg', rate: 0 }] });
+    setFormData({ customerId: '', customerName: '', customerContact: '', date: new Date().toISOString().split('T')[0], dueDate: '', paymentMethod: 'Cash', cashPaid: '', tier: 'Retail', items: [{ productName: '', quantity: 1, unit: 'kg', rate: 0 }] });
     setCustomerSearch('');
     setCustomerLazyLimit(50);
   };
@@ -110,18 +188,23 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices, p
       total: calculateItemTotal(Number(item.quantity), Number(item.rate), item.unit || 'kg')
     }));
 
+    const isPending = formData.paymentMethod === 'Pending' || (Number(formData.cashPaid) === 0 && formData.paymentMethod === 'Cash' && formData.cashPaid !== '');
+
     const newSale: Sale = {
       id: crypto.randomUUID(),
       invoiceNumber: `INV-${String(data.sales.length + 1).padStart(5, '0')}`,
       date: formData.date,
+      dueDate: isPending ? formData.dueDate : undefined,
       customerId: formData.customerId || undefined,
       customerName: formData.customerName || customerSearch || 'Walk-in',
+      customerContact: formData.customerContact,
       items: finalItems,
       totalAmount: finalItems.reduce((sum, i) => sum + i.total, 0),
       category: 'General',
       isMistake: false,
       createdBy: data.currentUser?.id || 'System',
-      paymentMethod: (Number(formData.cashPaid) === 0 && formData.paymentMethod === 'Cash') ? 'Pending' : formData.paymentMethod,
+      paymentMethod: isPending ? 'Pending' : formData.paymentMethod,
+      isPaid: !isPending
     };
 
     updateData(prev => ({
@@ -135,7 +218,7 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices, p
   };
 
   const selectCustomer = (c: Customer) => {
-    setFormData(prev => ({ ...prev, customerId: c.id, customerName: c.name }));
+    setFormData(prev => ({ ...prev, customerId: c.id, customerName: c.name, customerContact: c.phone }));
     setCustomerSearch(c.name);
     setShowCustomerList(false);
     setIsCustomerForced(false);
@@ -202,8 +285,8 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices, p
       {showAddForm && (
         <div className="bg-white rounded-[32px] shadow-2xl border border-slate-200 animate-in fade-in zoom-in duration-300 no-print flex flex-col max-h-[85vh]">
           <form onSubmit={handleSubmit} className="flex flex-col h-full">
-            <div className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4 border-b border-slate-100 bg-slate-50/30 rounded-t-[32px]">
-              <div className="relative">
+            <div className="p-4 grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 border-b border-slate-100 bg-slate-50/30 rounded-t-[32px]">
+              <div className="relative col-span-1 md:col-span-2 lg:col-span-1">
                 <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Customer</label>
                 <div className="flex border border-slate-200 rounded-xl overflow-hidden bg-white focus-within:ring-2 focus-within:ring-indigo-500">
                   <input ref={customerInputRef} type="text" className="flex-1 px-3 py-2 outline-none font-bold uppercase text-sm" placeholder="Search or Walk-in..." value={customerSearch} onChange={e => { setCustomerSearch(e.target.value); setShowCustomerList(true); setIsCustomerForced(false); }} onFocus={() => setShowCustomerList(true)} />
@@ -220,15 +303,37 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices, p
                   </div>
                 )}
               </div>
+              
+              <div>
+                <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Contact Number</label>
+                <input type="tel" className="w-full px-3 py-2 border border-slate-200 rounded-xl outline-none font-bold text-sm" placeholder="Mobile..." value={formData.customerContact} onChange={e => setFormData({ ...formData, customerContact: e.target.value })} />
+              </div>
+
               <div>
                 <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Billing Date</label>
                 <input type="date" required className="w-full px-3 py-2 border border-slate-200 rounded-xl outline-none font-bold text-sm" value={formData.date} onChange={e => setFormData({ ...formData, date: e.target.value })} />
               </div>
+
+              {formData.paymentMethod === 'Pending' && (
+                <div className="animate-in fade-in slide-in-from-left-2">
+                  <label className="block text-[9px] font-black text-rose-500 uppercase tracking-widest mb-1">Due Date</label>
+                  <input type="date" className="w-full px-3 py-2 border border-rose-200 bg-rose-50 rounded-xl outline-none font-bold text-sm text-rose-700" value={formData.dueDate} onChange={e => setFormData({ ...formData, dueDate: e.target.value })} />
+                </div>
+              )}
+
               <div>
                 <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Pricing Tier</label>
                 <div className="flex bg-slate-100 p-1 rounded-xl">
                   {['Retail', 'Wholesale'].map(t => (
                     <button key={t} type="button" onClick={() => setFormData({...formData, tier: t as PriceTier})} className={`flex-1 py-1 rounded-lg text-[9px] font-black uppercase transition-all ${formData.tier === t ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400'}`}>{t}</button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Payment Mode</label>
+                <div className="flex bg-slate-100 p-1 rounded-xl">
+                  {['Cash', 'UPI', 'Pending'].map(m => (
+                    <button key={m} type="button" onClick={() => setFormData({...formData, paymentMethod: m as PaymentMethod})} className={`flex-1 py-1 rounded-lg text-[9px] font-black uppercase transition-all ${formData.paymentMethod === m ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400'}`}>{m}</button>
                   ))}
                 </div>
               </div>
@@ -470,22 +575,98 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices, p
       )}
 
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden no-print">
-          <div className="px-6 py-3 border-b bg-slate-50/50 flex justify-between items-center">
-             <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Recent Sales Flow</h4>
-             <button onClick={onNavigateToInvoices} className="text-[10px] font-black text-indigo-600 uppercase tracking-widest hover:underline">Full Audit →</button>
+          <div className="px-6 py-4 border-b bg-slate-50/50 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+             <div className="flex flex-wrap items-center gap-4">
+               <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-widest whitespace-nowrap">Recent Sales Flow</h4>
+               <div className="flex bg-white p-1 rounded-xl border border-slate-200">
+                 {(['All', 'Paid', 'Pending'] as const).map(f => (
+                   <button key={f} onClick={() => setHistoryStatus(f)} className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${historyStatus === f ? 'bg-indigo-50 text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>{f}</button>
+                 ))}
+               </div>
+               {historyStatus === 'Pending' && (
+                 <div className="flex px-3 py-1.5 bg-rose-50 border border-rose-100 rounded-lg items-center gap-2">
+                   <span className="text-[9px] font-black uppercase text-rose-500 tracking-widest">Pending Total:</span>
+                   <span className="text-xs font-black text-rose-700">₹{filteredHistory.reduce((sum, s) => sum + s.totalAmount, 0).toLocaleString()}</span>
+                 </div>
+               )}
+             </div>
+             <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                <div className="flex items-center gap-2">
+                  <input type="date" value={historyDateRange.start} onChange={e => setHistoryDateRange({...historyDateRange, start: e.target.value})} className="px-2 py-1 bg-white border border-slate-200 rounded-lg text-[10px] font-bold outline-none" />
+                  <span className="text-slate-400 text-[10px] font-bold">to</span>
+                  <input type="date" value={historyDateRange.end} onChange={e => setHistoryDateRange({...historyDateRange, end: e.target.value})} className="px-2 py-1 bg-white border border-slate-200 rounded-lg text-[10px] font-bold outline-none" />
+                </div>
+                <button onClick={onNavigateToInvoices} className="text-[10px] font-black text-indigo-600 uppercase tracking-widest hover:underline ml-auto">Full Audit →</button>
+             </div>
+          </div>
+          <div className="px-6 py-2 bg-slate-50 border-b flex items-center gap-2 overflow-x-auto">
+             <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest shrink-0">Sort By:</span>
+             {[
+               { key: 'date', label: 'Date' },
+               { key: 'invoiceNumber', label: 'Invoice #' },
+               { key: 'customerName', label: 'Customer' },
+               { key: 'totalAmount', label: 'Amount' }
+             ].map(sort => (
+               <button 
+                 key={sort.key} 
+                 onClick={() => toggleHistorySort(sort.key as any)}
+                 className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all flex items-center space-x-1 border ${
+                   historySortKey === sort.key 
+                     ? 'bg-indigo-600 text-white border-indigo-700' 
+                     : 'bg-white text-slate-500 border-slate-200 hover:border-indigo-300'
+                 }`}
+               >
+                 <span>{sort.label}</span>
+                 <span className={`transition-transform duration-200 ${historySortKey === sort.key && historySortDir === 'desc' ? 'rotate-180' : ''}`}>
+                   {historySortKey === sort.key ? (
+                     <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 15l7-7 7 7" /></svg>
+                   ) : (
+                     <svg className="w-3 h-3 opacity-20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M8 9l4-4 4 4m0 6l-4 4-4-4" /></svg>
+                   )}
+                 </span>
+               </button>
+             ))}
           </div>
           <table className="w-full text-left">
             <tbody className="divide-y divide-slate-100">
-              {data.sales.slice(0, 10).map((sale) => (
+              {filteredHistory.slice(0, 20).map((sale) => (
                 <tr key={sale.id} className="hover:bg-slate-50 group transition-colors">
                   <td className="px-6 py-4 text-xs font-bold text-slate-500">{formatDate(sale.date)}</td>
+                  <td className="px-6 py-4 text-xs font-black text-slate-400">{sale.invoiceNumber}</td>
                   <td className="px-6 py-4 text-sm font-black text-slate-800 uppercase tracking-tight">{sale.customerName}</td>
                   <td className="px-6 py-4 text-right font-black text-indigo-600">₹{sale.totalAmount.toLocaleString()}</td>
-                  <td className="px-6 py-4 text-center">
-                     <button onClick={() => { setLastSavedSale(sale); setPrintSize('Thermal80'); }} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"><IconPrint className="w-4 h-4" /></button>
+                  <td className="px-6 py-4 text-center flex justify-end gap-2">
+                     <button onClick={() => { 
+                       setFormData({
+                         customerId: sale.customerId || '',
+                         customerName: sale.customerName,
+                         customerContact: sale.customerContact || '',
+                         date: new Date().toISOString().split('T')[0],
+                         dueDate: sale.dueDate || '',
+                         paymentMethod: 'Cash',
+                         cashPaid: '',
+                         tier: 'Retail',
+                         items: sale.items.map(item => ({
+                           productName: item.productName,
+                           quantity: item.quantity,
+                           unit: item.unit,
+                           rate: item.rate
+                         }))
+                       });
+                       setCustomerSearch(sale.customerName);
+                       setShowAddForm(true);
+                     }} className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all opacity-0 group-hover:opacity-100" title="Duplicate Bill">
+                       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                     </button>
+                     <button onClick={() => { setLastSavedSale(sale); setPrintSize('Thermal80'); }} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all opacity-0 group-hover:opacity-100" title="Print Bill"><IconPrint className="w-4 h-4" /></button>
                   </td>
                 </tr>
               ))}
+              {filteredHistory.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-6 py-8 text-center text-slate-400 font-bold text-xs uppercase tracking-widest">No sales found</td>
+                </tr>
+              )}
             </tbody>
           </table>
       </div>

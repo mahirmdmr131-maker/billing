@@ -16,6 +16,7 @@ import Settings from './components/Settings';
 import About from './components/About';
 import AIAssistant from './components/AIAssistant';
 import { IconDashboard, IconCustomers, IconProducts, IconSales, IconFutureOrders, IconExpenses, IconInvoices, IconReports, IconSettings, IconInfo, IconMenu, IconClose, IconEdit, IconStars } from './components/Icons';
+import { GlobalSearch } from './components/GlobalSearch';
 import { uploadToDrive, hasAccessToken, initGoogleAuth, getBackupInfo } from './utils/googleDrive';
 import { uploadToOneDrive } from './utils/oneDrive';
 
@@ -100,9 +101,13 @@ const App: React.FC = () => {
   const [showSplash, setShowSplash] = useState(true);
   const [activeTab, setActiveTab] = useState<NavigationTab>(NavigationTab.Dashboard);
   const [selectedInvoicingSale, setSelectedInvoicingSale] = useState<Sale | null>(null);
+  const [selectedCustomer, setSelectedCustomer] = useState<any | null>(null);
+  const [selectedProductSearch, setSelectedProductSearch] = useState('');
+  const [saleToDuplicate, setSaleToDuplicate] = useState<Sale | null>(null);
   const [showUserDropdown, setShowUserDropdown] = useState(false);
   const [isBusinessModalOpen, setIsBusinessModalOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -323,6 +328,18 @@ const App: React.FC = () => {
     setIsMobileMenuOpen(false);
   };
 
+  const handleGlobalNavigate = (tab: NavigationTab, item?: any) => {
+    if (tab === NavigationTab.Invoices && item) {
+      setSelectedInvoicingSale(item);
+    } else if (tab === NavigationTab.Customers && item) {
+      setSelectedCustomer(item);
+    } else if (tab === NavigationTab.Products && item) {
+      setSelectedProductSearch(item.name);
+    }
+    setActiveTab(tab);
+    setIsMobileMenuOpen(false);
+  };
+
   if (showSplash) return <SplashScreen business={data.business} />;
   if (!data.isInitialized) return <SetupScreen onComplete={handleSetupComplete} onImport={(d) => setData(d)} />;
   if (!data.currentUser) return <Login data={data} updateData={handleUpdateData} onLogin={handleLogin} />;
@@ -330,12 +347,12 @@ const App: React.FC = () => {
   const renderTabContent = () => {
     switch (activeTab) {
       case NavigationTab.Dashboard: return <Dashboard data={data} updateData={handleUpdateData} />;
-      case NavigationTab.Customers: return <Customers data={data} updateData={handleUpdateData} onNavigateToInvoices={(sale) => { setSelectedInvoicingSale(sale); setActiveTab(NavigationTab.Invoices); }} />;
-      case NavigationTab.Products: return <Products data={data} updateData={handleUpdateData} />;
-      case NavigationTab.Sales: return <Sales data={data} updateData={handleUpdateData} onNavigateToInvoices={() => { setSelectedInvoicingSale(null); setActiveTab(NavigationTab.Invoices); }} />;
+      case NavigationTab.Customers: return <Customers data={data} updateData={handleUpdateData} onNavigateToInvoices={(sale) => { setSelectedInvoicingSale(sale); setActiveTab(NavigationTab.Invoices); }} initialCustomer={selectedCustomer} onClearInitialCustomer={() => setSelectedCustomer(null)} />;
+      case NavigationTab.Products: return <Products data={data} updateData={handleUpdateData} initialSearchTerm={selectedProductSearch} />;
+      case NavigationTab.Sales: return <Sales data={data} updateData={handleUpdateData} onNavigateToInvoices={() => { setSelectedInvoicingSale(null); setActiveTab(NavigationTab.Invoices); }} initialSaleToDuplicate={saleToDuplicate} onClearDuplicate={() => setSaleToDuplicate(null)} />;
       case NavigationTab.FutureOrders: return <FutureOrders data={data} updateData={handleUpdateData} />;
       case NavigationTab.Expenses: return isAdmin ? <Expenses data={data} updateData={handleUpdateData} /> : <AccessRestricted />;
-      case NavigationTab.Invoices: return <Invoices data={data} updateData={handleUpdateData} initialSale={selectedInvoicingSale} onResetInitialSale={() => setSelectedInvoicingSale(null)} />;
+      case NavigationTab.Invoices: return <Invoices data={data} updateData={handleUpdateData} initialSale={selectedInvoicingSale} onResetInitialSale={() => setSelectedInvoicingSale(null)} onDuplicate={(sale) => { setSaleToDuplicate(sale); setActiveTab(NavigationTab.Sales); }} />;
       case NavigationTab.Reports: return isAdmin ? <Reports data={data} /> : <AccessRestricted />;
       case NavigationTab.AIAssistant: return isAdmin ? <AIAssistant data={data} /> : <AccessRestricted />;
       case NavigationTab.Settings: return <Settings data={data} updateData={handleUpdateData} onManualSync={handleManualSync} onLogout={handleLogout} onSetLocalHandle={setLocalHandle} />;
@@ -345,17 +362,9 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className={`min-h-screen pb-0 md:pl-64 flex flex-col bg-slate-50 print:min-h-0 print:h-auto`}>
-      {/* Mobile Drawer Backdrop */}
-      {isMobileMenuOpen && (
-        <div 
-          className="fixed inset-0 z-[40] bg-slate-900/60 backdrop-blur-sm md:hidden animate-in fade-in duration-300"
-          onClick={() => setIsMobileMenuOpen(false)}
-        />
-      )}
-
+    <div className={`min-h-screen pb-0 ${isSidebarCollapsed ? 'md:pl-0' : 'md:pl-64'} transition-all duration-300 flex flex-col bg-slate-50 print:min-h-0 print:h-auto`}>
       {/* Main Sidebar (Drawer on Mobile) */}
-      <aside className={`fixed inset-y-0 left-0 z-[50] w-64 ${themeColors.primary} text-white flex flex-col p-6 transform transition-transform duration-300 ease-in-out ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 overflow-y-auto no-print`}>
+      <aside className={`fixed inset-y-0 left-0 z-[50] w-64 ${themeColors.primary} text-white flex flex-col p-6 transform transition-transform duration-300 ease-in-out ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'} ${isSidebarCollapsed ? 'md:-translate-x-full' : 'md:translate-x-0'} overflow-y-auto no-print`}>
         <div className="flex items-center justify-between mb-10">
           <div className="flex items-center space-x-3 overflow-hidden">
             {data.business?.logo ? <img src={data.business.logo} alt="Logo" className="w-10 h-10 rounded bg-white p-1" /> : <div className="w-10 h-10 rounded bg-white/20 flex items-center justify-center font-bold">AM</div>}
@@ -382,11 +391,26 @@ const App: React.FC = () => {
         </nav>
       </aside>
 
+      {/* Mobile Drawer Backdrop */}
+      {isMobileMenuOpen && (
+        <div 
+          className="fixed inset-0 z-[40] bg-slate-900/60 backdrop-blur-sm md:hidden animate-in fade-in duration-300"
+          onClick={() => setIsMobileMenuOpen(false)}
+        />
+      )}
+
       <header className="sticky top-0 bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between z-30 no-print">
         <div className="flex items-center space-x-4">
           <button 
             onClick={() => setIsMobileMenuOpen(true)} 
             className="md:hidden p-2 -ml-2 text-slate-600 hover:bg-slate-100 rounded-xl transition-colors active:scale-95"
+          >
+            <IconMenu />
+          </button>
+          <button 
+            onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)} 
+            className="hidden md:block p-2 -ml-2 text-slate-600 hover:bg-slate-100 rounded-xl transition-colors active:scale-95 mr-2"
+            title={isSidebarCollapsed ? "Show Sidebar" : "Hide Sidebar"}
           >
             <IconMenu />
           </button>
@@ -399,6 +423,9 @@ const App: React.FC = () => {
             )}
           </div>
         </div>
+
+        <GlobalSearch data={data} onNavigate={handleGlobalNavigate} />
+
         <div className="relative" ref={dropdownRef}>
           <button onClick={() => setShowUserDropdown(!showUserDropdown)} className="flex items-center space-x-3 p-2 hover:bg-slate-50 rounded-2xl transition-all">
             <div className={`w-10 h-10 rounded-xl ${themeColors.light} ${themeColors.text} flex items-center justify-center font-black`}>

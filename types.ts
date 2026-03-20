@@ -96,12 +96,14 @@ export interface Sale {
   paidDate?: string; 
   customerId?: string;
   customerName: string;
+  customerContact?: string; // New: Contact number for pending transactions
   items: SaleItem[];
   totalAmount: number;
   category: string;
   createdBy: string;
   isMistake?: boolean;
   paymentMethod: PaymentMethod;
+  isPaid?: boolean; // New: Status flag for pending/credit
   originalPaymentMethod?: PaymentMethod; 
   selectedUpiQrId?: string; 
   includePreviousBalance?: boolean; 
@@ -165,6 +167,17 @@ export interface DashboardWidget {
 
 export type AppTheme = 'indigo' | 'emerald' | 'rose' | 'amber' | 'slate' | 'cyan' | 'dynamic';
 
+export interface Settlement {
+  id: string;
+  customerId: string;
+  customerName: string;
+  date: string;
+  amount: number;
+  status: 'Settled' | 'Unsettled';
+  paymentMethod?: 'Cash' | 'UPI' | 'Cheque' | 'Other';
+  notes?: string;
+}
+
 export interface AppData {
   business: BusinessInfo | null;
   users: User[];
@@ -176,6 +189,7 @@ export interface AppData {
   sales: Sale[];
   futureOrders: FutureOrder[]; 
   expenses: Expense[];
+  settlements: Settlement[]; // New: Settlement Management
   recycleBin: RecycleBin;
   dashboardWidgets: DashboardWidget[];
   isInitialized: boolean;

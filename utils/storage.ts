@@ -49,6 +49,7 @@ const DEFAULT_DATA: AppData = {
   sales: [],
   futureOrders: [],
   expenses: [],
+  settlements: [],
   recycleBin: DEFAULT_RECYCLE_BIN,
   dashboardWidgets: DEFAULT_WIDGETS,
   isInitialized: false,
@@ -122,6 +123,7 @@ export const loadData = (): AppData => {
     if (!data.sales) data.sales = [];
     if (!data.futureOrders) data.futureOrders = [];
     if (!data.expenses) data.expenses = [];
+    if (!data.settlements) data.settlements = [];
     if (!data.recycleBin) data.recycleBin = DEFAULT_RECYCLE_BIN;
     if (!data.recycleBin.futureOrders) data.recycleBin.futureOrders = [];
     if (!data.theme) data.theme = 'indigo';
