@@ -22,6 +22,11 @@ const Products: React.FC<ProductsProps> = ({ data, updateData, initialSearchTerm
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [searchTerm, setSearchTerm] = useState(initialSearchTerm || '');
   const [viewingHistoryId, setViewingHistoryId] = useState<string | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+
+  const productToDelete = useMemo(() => 
+    deleteConfirmId ? data.products.find(p => p.id === deleteConfirmId) : null
+  , [deleteConfirmId, data.products]);
 
   React.useEffect(() => {
     if (initialSearchTerm) setSearchTerm(initialSearchTerm);
@@ -116,22 +121,26 @@ const Products: React.FC<ProductsProps> = ({ data, updateData, initialSearchTerm
 
   const deleteProduct = (id: string) => {
     if (!isAdmin) {
+      // Using a simple alert for now as it's a permission check, 
+      // but the main request was for the deletion confirmation.
       alert("Only admins can remove products from the catalog.");
       return;
     }
-    const productToDelete = data.products.find(p => p.id === id);
-    if (!productToDelete) return;
+    setDeleteConfirmId(id);
+  };
 
-    if (window.confirm(`MOVE TO TRASH: Remove "${productToDelete.name}" from catalog?`)) {
-      updateData(prev => ({
-        ...prev,
-        products: prev.products.filter(p => p.id !== id),
-        recycleBin: {
-            ...prev.recycleBin,
-            products: [...prev.recycleBin.products, { ...productToDelete, deletedAt: new Date().toISOString() }]
-        }
-      }));
-    }
+  const confirmDelete = () => {
+    if (!deleteConfirmId || !productToDelete) return;
+
+    updateData(prev => ({
+      ...prev,
+      products: prev.products.filter(p => p.id !== deleteConfirmId),
+      recycleBin: {
+          ...prev.recycleBin,
+          products: [...prev.recycleBin.products, { ...productToDelete, deletedAt: new Date().toISOString() }]
+      }
+    }));
+    setDeleteConfirmId(null);
   };
 
   return (
@@ -271,6 +280,36 @@ const Products: React.FC<ProductsProps> = ({ data, updateData, initialSearchTerm
                 <button type="submit" className="flex-1 px-6 py-4 bg-indigo-600 text-white font-black rounded-2xl shadow-xl uppercase text-[10px] tracking-widest hover:bg-indigo-700">Save Product</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {deleteConfirmId && productToDelete && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-md animate-in fade-in duration-300">
+          <div className="bg-white w-full max-w-md rounded-[32px] shadow-2xl overflow-hidden border border-rose-100">
+            <div className="bg-rose-50 px-8 py-8 text-center">
+              <div className="w-20 h-20 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-6">
+                <svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+              </div>
+              <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tight mb-2">Move to Trash?</h3>
+              <p className="text-sm text-slate-500 font-medium">
+                You are about to remove <span className="font-black text-rose-600 uppercase">"{productToDelete.name}"</span> from the active catalog.
+              </p>
+            </div>
+            <div className="p-8 flex flex-col gap-3">
+              <button 
+                onClick={confirmDelete} 
+                className="w-full py-4 bg-rose-600 hover:bg-rose-700 text-white font-black rounded-2xl shadow-lg shadow-rose-200 uppercase tracking-widest text-xs transition-all active:scale-95"
+              >
+                Yes, Remove Product
+              </button>
+              <button 
+                onClick={() => setDeleteConfirmId(null)} 
+                className="w-full py-4 bg-slate-50 hover:bg-slate-100 text-slate-500 font-black rounded-2xl uppercase tracking-widest text-xs transition-all"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}

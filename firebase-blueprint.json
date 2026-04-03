@@ -1,0 +1,28 @@
+{
+  "entities": {
+    "Sale": {
+      "title": "Sale",
+      "description": "A sales record including items, customer info, and payment status.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "invoiceNumber": { "type": "string" },
+        "customerId": { "type": "string" },
+        "customerName": { "type": "string" },
+        "totalAmount": { "type": "number" },
+        "paymentMethod": { "type": "string", "enum": ["Cash", "Cash (Settled)", "UPI", "Pending"] },
+        "paymentStatus": { "type": "string", "enum": ["pending", "paid", "failed"] },
+        "paymentLinkId": { "type": "string" },
+        "paymentUrl": { "type": "string" },
+        "date": { "type": "string", "format": "date" }
+      },
+      "required": ["id", "invoiceNumber", "totalAmount", "paymentMethod"]
+    }
+  },
+  "firestore": {
+    "/sales/{saleId}": {
+      "schema": "Sale",
+      "description": "Collection of sales records."
+    }
+  }
+}

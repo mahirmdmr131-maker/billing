@@ -4,6 +4,7 @@ export interface User {
   id: string;
   username: string;
   passwordHash: string;
+  phone?: string; // Registered mobile number for OTP
   role: UserRole;
   createdAt: string;
 }
@@ -86,7 +87,7 @@ export interface SaleItem {
   expiryDate?: string;  
 }
 
-export type PaymentMethod = 'Cash' | 'UPI' | 'Pending';
+export type PaymentMethod = 'Cash' | 'Cash (Settled)' | 'UPI' | 'Pending';
 
 export interface Sale {
   id: string;

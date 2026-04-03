@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { AppData, BusinessInfo, AppTheme, User, Sale, Product, Customer, Expense, UpiQr, TemplateSettings, SaleItem } from '../types';
 import { initGoogleAuth, uploadToDrive, getBackupInfo, downloadFromDrive, hasAccessToken } from '../utils/googleDrive';
 import { initOneDriveAuth, uploadToOneDrive } from '../utils/oneDrive';
+import { sendOTP, generateOTP } from '../utils/otp';
 
 interface SettingsProps {
   data: AppData;
@@ -15,15 +16,42 @@ type PrintSize = 'A4' | 'Thermal80' | 'Thermal58';
 
 const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onLogout, onSetLocalHandle }) => {
   const isAdmin = data.currentUser?.role === 'admin';
-  const [settingsTab, setSettingsTab] = useState<'app' | 'template' | 'users' | 'sync'>('app');
+  const [settingsTab, setSettingsTab] = useState<'app' | 'template' | 'security' | 'sync'>('app');
   const [previewSize, setPreviewSize] = useState<PrintSize>('Thermal80');
   
+  // Admin State
+  const [adminEdit, setAdminEdit] = useState({
+    username: data.users.find(u => u.role === 'admin')?.username || 'admin',
+    password: '',
+    phone: data.users.find(u => u.role === 'admin')?.phone || '',
+    recoveryCode: data.adminRecoveryCode || ''
+  });
+  const [showAdminPass, setShowAdminPass] = useState(false);
+
   // Staff State
-  const [newStaff, setNewStaff] = useState({ username: '', password: '' });
+  const [newStaff, setNewStaff] = useState({ username: '', password: '', phone: '' });
+  const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({});
+  const [showNewStaffPass, setShowNewStaffPass] = useState(false);
   
   // Cloud State
   const [syncingCloud, setSyncingCloud] = useState<string | null>(null);
   const [driveBackupStatus, setDriveBackupStatus] = useState<{ id: string; modifiedTime: string } | null>(null);
+
+  // OTP State for Admin Change
+  const [showOtpModal, setShowOtpModal] = useState(false);
+  const [otpCode, setOtpCode] = useState('');
+  const [otpInput, setOtpInput] = useState('');
+  const [isSendingOtp, setIsSendingOtp] = useState(false);
+  const [otpToast, setOtpToast] = useState<{phone: string, code: string} | null>(null);
+
+  useEffect(() => {
+    const handleOtpSent = (e: any) => {
+      setOtpToast(e.detail);
+      setTimeout(() => setOtpToast(null), 10000);
+    };
+    window.addEventListener('otp-sent', handleOtpSent);
+    return () => window.removeEventListener('otp-sent', handleOtpSent);
+  }, []);
 
   const importFileRef = useRef<HTMLInputElement>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
@@ -72,12 +100,80 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
     }
   };
 
+  const handleUpdateAdmin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adminEdit.username || !adminEdit.recoveryCode) {
+      alert('Username and Recovery Code are required.');
+      return;
+    }
+
+    const currentAdmin = data.users.find(u => u.role === 'admin');
+    
+    // If password is being changed and admin has a phone, require OTP
+    if (adminEdit.password && currentAdmin?.phone) {
+      setIsSendingOtp(true);
+      const code = generateOTP();
+      setOtpCode(code);
+      await sendOTP(currentAdmin.phone, code);
+      setIsSendingOtp(false);
+      setShowOtpModal(true);
+      return;
+    }
+    
+    performAdminUpdate();
+  };
+
+  const performAdminUpdate = () => {
+    updateData(prev => {
+      const updatedUsers = prev.users.map(u => {
+        if (u.role === 'admin') {
+          return {
+            ...u,
+            username: adminEdit.username,
+            passwordHash: adminEdit.password || u.passwordHash, // Only update if not empty
+            phone: adminEdit.phone
+          };
+        }
+        return u;
+      });
+
+      const updatedAdmin = updatedUsers.find(u => u.role === 'admin') || null;
+
+      return {
+        ...prev,
+        users: updatedUsers,
+        adminRecoveryCode: adminEdit.recoveryCode,
+        currentUser: prev.currentUser?.role === 'admin' ? updatedAdmin : prev.currentUser
+      };
+    });
+    setAdminEdit(prev => ({ ...prev, password: '' }));
+    setShowOtpModal(false);
+    setOtpInput('');
+    alert('Admin security profile updated successfully.');
+  };
+
+  const handleVerifyOtp = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (otpInput === otpCode) {
+      performAdminUpdate();
+    } else {
+      alert('Invalid OTP code. Please try again.');
+    }
+  };
+
   const handleAddStaff = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newStaff.username || !newStaff.password) return;
-    const newUser: User = { id: crypto.randomUUID(), username: newStaff.username, passwordHash: newStaff.password, role: 'staff', createdAt: new Date().toISOString() };
+    const newUser: User = { 
+      id: crypto.randomUUID(), 
+      username: newStaff.username, 
+      passwordHash: newStaff.password, 
+      phone: newStaff.phone,
+      role: 'staff', 
+      createdAt: new Date().toISOString() 
+    };
     updateData(prev => ({ ...prev, users: [...prev.users, newUser] }));
-    setNewStaff({ username: '', password: '' });
+    setNewStaff({ username: '', password: '', phone: '' });
   };
 
   const handleBrowseFolder = async (slot: 1 | 2) => {
@@ -165,18 +261,103 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
   const formatDate = (dateStr: string) => dateStr.split('-').reverse().join('/');
 
   const applyTemplate = (text: string, sale: Sale) => {
+    if (!text) return '';
     return text
-      .replace('{{inv_number}}', sale.invoiceNumber)
-      .replace('{{cust_name}}', sale.customerName)
-      .replace('{{total_due}}', `₹${sale.totalAmount.toLocaleString()}`)
-      .replace('{{date}}', formatDate(sale.date));
+      .replace(/{{inv_number}}/g, sale.invoiceNumber)
+      .replace(/{{cust_name}}/g, sale.customerName)
+      .replace(/{{total_due}}/g, `₹${sale.totalAmount.toLocaleString()}`)
+      .replace(/{{date}}/g, formatDate(sale.date));
+  };
+
+  const handleRecalculateBalances = () => {
+    if (!confirm('Are you sure you want to recalculate all customer balances? This will fix any discrepancies based on transaction history.')) return;
+    
+    updateData(prev => {
+      let hasChanges = false;
+      const updatedCustomers = prev.customers.map(c => {
+        // Calculate correct balance: Total of all sales that are CURRENTLY 'Pending'
+        // minus all settlement payments recorded.
+        const totalPendingSales = prev.sales
+          .filter(s => s.customerId === c.id && !s.isMistake && s.paymentMethod === 'Pending')
+          .reduce((sum, s) => sum + s.totalAmount, 0);
+        
+        const totalSettlements = (prev.settlements || [])
+          .filter(s => s.customerId === c.id)
+          .reduce((sum, s) => sum + s.amount, 0);
+          
+        const correctBalance = Math.max(0, totalPendingSales - totalSettlements);
+        
+        if (c.pendingBalance !== correctBalance) {
+          hasChanges = true;
+          return { ...c, pendingBalance: correctBalance };
+        }
+        return c;
+      });
+      
+      if (hasChanges) {
+        return { ...prev, customers: updatedCustomers };
+      }
+      return prev;
+    });
+    alert('Customer balances recalculated successfully.');
   };
 
   return (
-    <div className="max-w-6xl mx-auto space-y-8 pb-20">
+    <>
+      {/* OTP Toast (Demo Only) */}
+      {otpToast && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[200] bg-slate-900 text-white px-8 py-4 rounded-3xl shadow-2xl border border-white/10 animate-in slide-in-from-top-8 duration-500 flex items-center space-x-4">
+          <div className="w-10 h-10 bg-indigo-600 rounded-2xl flex items-center justify-center text-xl">📱</div>
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">OTP Sent to {otpToast.phone}</p>
+            <p className="text-xl font-black tracking-[0.2em] text-indigo-400">{otpToast.code}</p>
+          </div>
+          <button onClick={() => setOtpToast(null)} className="text-slate-500 hover:text-white">
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+      )}
+
+      {/* OTP Verification Modal */}
+      {showOtpModal && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-300">
+          <div className="bg-white w-full max-w-sm rounded-[40px] shadow-2xl p-10 animate-in zoom-in-95 duration-200">
+            <div className="text-center space-y-6">
+              <div className="w-16 h-16 bg-indigo-50 text-indigo-500 rounded-full flex items-center justify-center mx-auto">
+                <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09A10.003 10.003 0 0012 20a10.003 10.003 0 006.239-2.239l.042.048m-4.588-4.41l-.456-.446a3 3 0 010-4.242 3 3 0 014.243 0l.456.446m-9.172 0l.456.446a3 3 0 010 4.242 3 3 0 01-4.243 0l-.456-.446m12.728 0l-.456-.446a3 3 0 010-4.242 3 3 0 014.243 0l.456.446" /></svg>
+              </div>
+              <h3 className="text-xl font-black uppercase tracking-tight">Security Verification</h3>
+              <p className="text-xs text-slate-400 font-bold">A verification code was sent to your registered mobile number.</p>
+              <form onSubmit={handleVerifyOtp} className="space-y-4">
+                <input 
+                  type="text" 
+                  required 
+                  maxLength={6}
+                  placeholder="000000"
+                  className="w-full px-6 py-4 bg-slate-50 border rounded-3xl outline-none focus:ring-4 focus:ring-indigo-500/10 font-black text-center text-2xl tracking-[0.5em]"
+                  value={otpInput}
+                  onChange={e => setOtpInput(e.target.value.replace(/\D/g, ''))}
+                />
+                <button type="submit" className="w-full py-4 bg-indigo-600 text-white font-black rounded-3xl uppercase text-xs tracking-widest shadow-lg shadow-indigo-100">Verify & Update</button>
+                <button 
+                  type="button" 
+                  onClick={() => setShowOtpModal(false)}
+                  className="w-full py-2 text-slate-400 font-black text-[10px] uppercase tracking-widest hover:text-slate-600"
+                >
+                  Cancel
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="max-w-6xl mx-auto space-y-8 pb-20">
       <div className="flex bg-white p-2 rounded-2xl shadow-sm border border-slate-100 overflow-x-auto no-scrollbar no-print">
-        {(['app', 'template', 'users', 'sync'] as const).map(t => (
-          <button key={t} onClick={() => setSettingsTab(t)} className={`px-8 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${settingsTab === t ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}>{t}</button>
+        {(['app', 'template', 'security', 'sync'] as const).map(t => (
+          <button key={t} onClick={() => setSettingsTab(t)} className={`px-8 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${settingsTab === t ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}>
+            {t === 'security' ? 'Access & Security' : t}
+          </button>
         ))}
       </div>
 
@@ -201,6 +382,17 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
                    <input type="number" min="0" className="w-16 p-2 border rounded-xl font-black text-center" value={data.autoLogoutMinutes} onChange={e => updateData(prev => ({...prev, autoLogoutMinutes: parseInt(e.target.value) || 0}))} />
                    <span className="text-[10px] font-black text-slate-400 uppercase">Mins</span>
                  </div>
+              </div>
+
+              <div className="pt-8 border-t border-slate-100">
+                <h4 className="font-black uppercase text-[10px] text-slate-400 mb-6 tracking-[0.4em]">Data Management</h4>
+                <div className="bg-amber-50 p-6 rounded-2xl border border-amber-100 flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-black text-amber-900 uppercase">Recalculate Customer Balances</p>
+                    <p className="text-[10px] text-amber-700 uppercase font-bold">Fixes discrepancies in pending dues</p>
+                  </div>
+                  <button onClick={handleRecalculateBalances} className="px-6 py-2 bg-amber-600 text-white text-[10px] font-black uppercase rounded-xl shadow-sm active:scale-95 transition-all">Recalculate Now</button>
+                </div>
               </div>
            </div>
         </div>
@@ -355,24 +547,27 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
                   color: 'black'
                 }}
               >
-                <div className={`h-full border-black ${data.templateSettings.compactMode ? 'p-3' : 'p-8'}`} style={{ borderWidth: `${data.templateSettings.borderWeight}px` }}>
+                <div className={`h-full border-black ${data.templateSettings.compactMode ? 'p-3' : 'p-8'}`} style={{ 
+                  borderWidth: `${data.templateSettings.borderWeight}px`,
+                  borderColor: data.templateSettings.applyToPrinting ? data.templateSettings.brandColor : '#000'
+                }}>
                   <div className="text-center mb-6">
                     {data.templateSettings.showLogo && data.business?.logo && (
                       <img src={data.business.logo} alt="Logo" className="mx-auto mb-4 object-contain opacity-90 mix-blend-multiply" style={{ width: `${data.templateSettings.logoSize}px` }} />
                     )}
-                    <h1 className="font-black uppercase tracking-tighter" style={{ fontSize: '1.8em' }}>{data.business?.name}</h1>
+                    <h1 className="font-black uppercase tracking-tighter" style={{ fontSize: '1.8em', color: data.templateSettings.applyToPrinting ? data.templateSettings.brandColor : '#000' }}>{data.business?.name}</h1>
                     <p className="font-bold opacity-75 uppercase tracking-widest" style={{ fontSize: '0.7em' }}>{data.business?.tagline}</p>
                     <div className="mt-2 font-medium" style={{ fontSize: '0.65em' }}>
                         <p>{data.business?.address}</p>
                         <p>Ph: {data.business?.phone}</p>
                     </div>
-                    <h2 className="mt-4 border-black font-black uppercase tracking-[0.2em] py-1" style={{ borderTopWidth: '1px', borderBottomWidth: '1px', fontSize: '0.8em' }}>Sale Invoice</h2>
+                    <h2 className="mt-4 font-black uppercase tracking-[0.2em] py-1 text-white text-center" style={{ backgroundColor: data.templateSettings.applyToPrinting ? data.templateSettings.brandColor : '#000', fontSize: '0.8em' }}>Sale Invoice</h2>
                   </div>
 
                   <div className="flex justify-between mb-6 font-black uppercase" style={{ fontSize: '0.7em' }}>
                       <div className="text-left">
                          <p className="opacity-40">Billed To</p>
-                         <p className="text-lg tracking-tight">{MOCK_SALE.customerName}</p>
+                         <p className="text-lg tracking-tight leading-tight">{MOCK_SALE.customerName}</p>
                       </div>
                       <div className="text-right">
                          <p className="opacity-40">Invoice Reference</p>
@@ -381,8 +576,19 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
                       </div>
                   </div>
 
+                  {data.templateSettings.applyToPrinting && data.templateSettings.customFields && data.templateSettings.customFields.length > 0 && (
+                    <div className="mb-6 grid grid-cols-2 gap-2" style={{ fontSize: '0.7em' }}>
+                      {data.templateSettings.customFields.map(field => (
+                        <div key={field.id} className="flex flex-col">
+                          <span className="opacity-40 font-black uppercase">{field.label}</span>
+                          <span className="font-bold">{applyTemplate(field.value, MOCK_SALE)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
                   <table className="w-full mb-8 border-collapse">
-                    <thead className="border-black uppercase" style={{ borderTopWidth: '2px', borderBottomWidth: '2px', fontSize: '0.65em' }}>
+                    <thead className="uppercase" style={{ borderTop: `2px solid ${data.templateSettings.applyToPrinting ? data.templateSettings.brandColor : '#000'}`, borderBottom: `2px solid ${data.templateSettings.applyToPrinting ? data.templateSettings.brandColor : '#000'}`, fontSize: '0.65em' }}>
                       <tr>
                         <th className="py-2 text-left">Description</th>
                         <th className="py-2 text-center">Qty</th>
@@ -405,7 +611,7 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
                     </tbody>
                   </table>
 
-                  <div className="flex flex-col items-end pt-4 border-black" style={{ borderTopWidth: '2px' }}>
+                  <div className="flex flex-col items-end pt-4" style={{ borderTop: `2px solid ${data.templateSettings.applyToPrinting ? data.templateSettings.brandColor : '#000'}` }}>
                      <div className="w-full space-y-2">
                         <div className="flex justify-between font-black uppercase" style={{ fontSize: '0.7em' }}>
                            <span className="opacity-50">Sub-Total Value</span>
@@ -413,7 +619,7 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
                         </div>
                         <div className="flex justify-between items-baseline pt-2">
                            <span className="font-black uppercase" style={{ fontSize: '0.7em' }}>Net Payable</span>
-                           <span className="font-black" style={{ fontSize: '2em', letterSpacing: '-0.05em' }}>₹{MOCK_SALE.totalAmount.toLocaleString()}</span>
+                           <span className="font-black" style={{ fontSize: '2em', letterSpacing: '-0.05em', color: data.templateSettings.applyToPrinting ? data.templateSettings.brandColor : '#000' }}>₹{MOCK_SALE.totalAmount.toLocaleString()}</span>
                         </div>
                      </div>
                   </div>
@@ -427,11 +633,11 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
                   {data.templateSettings.includeSignatures && (
                     <div className="mt-16 mb-4 flex justify-between px-2">
                       <div className="text-center">
-                         <div className="border-t border-black w-20 mx-auto mb-1"></div>
+                         <div className="w-20 mx-auto mb-1" style={{ borderTop: `1px solid ${data.templateSettings.applyToPrinting ? data.templateSettings.brandColor : '#000'}` }}></div>
                          <p className="font-black uppercase opacity-60" style={{ fontSize: '0.45em' }}>Receiver</p>
                       </div>
                       <div className="text-center">
-                         <div className="border-t border-black w-20 mx-auto mb-1"></div>
+                         <div className="w-20 mx-auto mb-1" style={{ borderTop: `1px solid ${data.templateSettings.applyToPrinting ? data.templateSettings.brandColor : '#000'}` }}></div>
                          <p className="font-black uppercase opacity-60" style={{ fontSize: '0.45em' }}>Authorized</p>
                       </div>
                     </div>
@@ -440,7 +646,7 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
                   <div className="mt-8 text-center border-t border-dotted border-gray-400 pt-4">
                     <p className="font-black uppercase tracking-widest opacity-30" style={{ fontSize: '0.5em' }}>AM Food Processing Suite</p>
                     {data.templateSettings.termsText && (
-                       <p className="mt-2 font-medium opacity-40 leading-none" style={{ fontSize: '0.45em' }}>{data.templateSettings.termsText}</p>
+                       <p className="mt-2 font-medium opacity-40 leading-none" style={{ fontSize: '0.45em' }}>{applyTemplate(data.templateSettings.termsText, MOCK_SALE)}</p>
                     )}
                   </div>
                 </div>
@@ -449,26 +655,187 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
         </div>
       )}
 
-      {settingsTab === 'users' && isAdmin && (
-        <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden animate-in fade-in duration-300">
-           <div className="bg-slate-900 px-8 py-6 text-white"><h3 className="text-xl font-black uppercase tracking-tight">Staff Credentials</h3></div>
-           <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-10">
-              <form onSubmit={handleAddStaff} className="space-y-4">
-                 <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b pb-2">New Access Node</h4>
-                 <input type="text" placeholder="Username" required value={newStaff.username} onChange={e => setNewStaff({...newStaff, username: e.target.value})} className="w-full p-3 border rounded-xl font-bold" />
-                 <input type="text" placeholder="Access Key" required value={newStaff.password} onChange={e => setNewStaff({...newStaff, password: e.target.value})} className="w-full p-3 border rounded-xl font-bold" />
-                 <button type="submit" className="w-full py-3 bg-indigo-600 text-white font-black rounded-xl text-[10px] uppercase">Authorize Staff</button>
-              </form>
-              <div className="space-y-3">
-                 <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b pb-2">Authorized Users</h4>
-                 {data.users.map(u => (
-                   <div key={u.id} className="flex justify-between p-3 bg-slate-50 rounded-xl">
-                      <span className="text-xs font-black uppercase">{u.username}</span>
-                      <span className="text-[9px] font-bold text-slate-400 uppercase">{u.role}</span>
-                   </div>
-                 ))}
+      {settingsTab === 'security' && isAdmin && (
+        <div className="space-y-8 animate-in fade-in duration-300">
+          {/* Admin Master Credentials */}
+          <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+            <div className="bg-rose-600 px-8 py-6 text-white flex justify-between items-center">
+              <div>
+                <h3 className="text-xl font-black uppercase tracking-tight">Admin Master Credentials</h3>
+                <p className="text-[10px] text-rose-100 font-bold uppercase tracking-widest mt-1">Critical Security Node</p>
               </div>
-           </div>
+              <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
+                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m0 0v2m0-2h2m-2 0H8m13 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              </div>
+            </div>
+            <div className="p-8">
+              <form onSubmit={handleUpdateAdmin} className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Admin User ID</label>
+                  <input 
+                    type="text" 
+                    required 
+                    value={adminEdit.username} 
+                    onChange={e => setAdminEdit({ ...adminEdit, username: e.target.value })} 
+                    className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold focus:ring-2 focus:ring-rose-500 outline-none transition-all" 
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">New Password (Optional)</label>
+                  <div className="relative">
+                    <input 
+                      type={showAdminPass ? "text" : "password"} 
+                      placeholder="Leave blank to keep current"
+                      value={adminEdit.password} 
+                      onChange={e => setAdminEdit({ ...adminEdit, password: e.target.value })} 
+                      className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold focus:ring-2 focus:ring-rose-500 outline-none transition-all pr-12" 
+                    />
+                    <button 
+                      type="button"
+                      onClick={() => setShowAdminPass(!showAdminPass)}
+                      className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-rose-600 transition-colors"
+                    >
+                      {showAdminPass ? (
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18" /></svg>
+                      ) : (
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                      )}
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Recovery Code</label>
+                  <input 
+                    type="text" 
+                    required 
+                    value={adminEdit.recoveryCode} 
+                    onChange={e => setAdminEdit({ ...adminEdit, recoveryCode: e.target.value })} 
+                    className="w-full p-4 bg-rose-50 border-2 border-rose-100 rounded-2xl font-black text-rose-600 focus:ring-2 focus:ring-rose-500 outline-none transition-all text-center font-mono" 
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Registered Mobile (OTP)</label>
+                  <input 
+                    type="tel" 
+                    value={adminEdit.phone} 
+                    onChange={e => setAdminEdit({ ...adminEdit, phone: e.target.value })} 
+                    className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold focus:ring-2 focus:ring-rose-500 outline-none transition-all" 
+                    placeholder="+91 9876543210"
+                  />
+                </div>
+                <div className="md:col-span-3 pt-2">
+                  <button type="submit" className="w-full py-4 bg-rose-600 text-white font-black rounded-2xl text-[10px] uppercase tracking-[0.2em] shadow-xl shadow-rose-100 hover:bg-rose-700 active:scale-95 transition-all">
+                    Update Master Security Node
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+
+          {/* Staff Credentials */}
+          <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+            <div className="bg-slate-900 px-8 py-6 text-white flex justify-between items-center">
+              <div>
+                <h3 className="text-xl font-black uppercase tracking-tight">Staff Access Management</h3>
+                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Secondary User Nodes</p>
+              </div>
+              <div className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center">
+                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+              </div>
+            </div>
+            <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-10">
+              <form onSubmit={handleAddStaff} className="space-y-6">
+                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b pb-2">Authorize New Staff</h4>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Username</label>
+                    <input type="text" required value={newStaff.username} onChange={e => setNewStaff({...newStaff, username: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold focus:ring-2 focus:ring-indigo-500 outline-none transition-all" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Access Key (Password)</label>
+                    <div className="relative">
+                      <input 
+                        type={showNewStaffPass ? "text" : "password"} 
+                        required 
+                        value={newStaff.password} 
+                        onChange={e => setNewStaff({...newStaff, password: e.target.value})} 
+                        className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold focus:ring-2 focus:ring-indigo-500 outline-none transition-all pr-12" 
+                      />
+                      <button 
+                        type="button"
+                        onClick={() => setShowNewStaffPass(!showNewStaffPass)}
+                        className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-indigo-600 transition-colors"
+                      >
+                        {showNewStaffPass ? (
+                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18" /></svg>
+                        ) : (
+                          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Registered Mobile (OTP)</label>
+                    <input type="tel" value={newStaff.phone} onChange={e => setNewStaff({...newStaff, phone: e.target.value})} className="w-full p-4 bg-slate-50 border border-slate-100 rounded-2xl font-bold focus:ring-2 focus:ring-indigo-500 outline-none transition-all" placeholder="+91 9876543210" />
+                  </div>
+                </div>
+                <button type="submit" className="w-full py-4 bg-indigo-600 text-white font-black rounded-2xl text-[10px] uppercase tracking-widest shadow-lg hover:bg-indigo-700 active:scale-95 transition-all">Authorize Staff Node</button>
+              </form>
+              <div className="space-y-6">
+                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b pb-2">Active Staff Nodes</h4>
+                <div className="space-y-3">
+                  {data.users.filter(u => u.role !== 'admin').map(u => (
+                    <div key={u.id} className="flex justify-between items-center p-4 bg-slate-50 rounded-2xl border border-slate-100 group hover:bg-white hover:border-indigo-200 transition-all">
+                      <div className="flex items-center space-x-3">
+                        <div className="w-8 h-8 bg-indigo-100 text-indigo-600 rounded-lg flex items-center justify-center font-black text-xs uppercase">
+                          {u.username.charAt(0)}
+                        </div>
+                        <div>
+                          <p className="text-xs font-black uppercase text-slate-700">{u.username}</p>
+                          <div className="flex items-center space-x-2">
+                            <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Created {new Date(u.createdAt).toLocaleDateString()}</p>
+                            <span className="text-slate-300">•</span>
+                            <div className="flex items-center space-x-1">
+                              <p className="text-[8px] font-bold text-slate-400 uppercase tracking-widest">Pass:</p>
+                              <p className="text-[9px] font-black text-indigo-600 font-mono">
+                                {visiblePasswords[u.id] ? u.passwordHash : '••••••••'}
+                              </p>
+                              <button 
+                                onClick={() => setVisiblePasswords(prev => ({ ...prev, [u.id]: !prev[u.id] }))}
+                                className="text-slate-400 hover:text-indigo-600 transition-colors p-1"
+                                title={visiblePasswords[u.id] ? "Hide Password" : "Show Password"}
+                              >
+                                {visiblePasswords[u.id] ? (
+                                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18" /></svg>
+                                ) : (
+                                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                                )}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      <button 
+                        onClick={() => {
+                          if (confirm(`Revoke access for ${u.username}?`)) {
+                            updateData(prev => ({ ...prev, users: prev.users.filter(user => user.id !== u.id) }));
+                          }
+                        }}
+                        className="p-2 text-slate-300 hover:text-rose-600 transition-colors"
+                      >
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                      </button>
+                    </div>
+                  ))}
+                  {data.users.filter(u => u.role !== 'admin').length === 0 && (
+                    <div className="py-10 text-center border-2 border-dashed border-slate-100 rounded-[32px]">
+                      <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest">No Staff Nodes Authorized</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -585,6 +952,7 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
         </div>
       )}
     </div>
+    </>
   );
 };
 

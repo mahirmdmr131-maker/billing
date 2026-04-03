@@ -32,8 +32,6 @@ const applyTemplate = (text: string, sale: Sale) => {
 const Invoices: React.FC<InvoicesProps> = ({ data, updateData, initialSale, onResetInitialSale, onDuplicate }) => {
   const [selectedInvoice, setSelectedInvoice] = useState<Sale | null>(null);
   const [printMode, setPrintMode] = useState<PrintMode>('Thermal80');
-  const [includeDues, setIncludeDues] = useState(false);
-  const [includeOwnerCopy, setIncludeOwnerCopy] = useState(false);
   const [isPrintingSummary, setIsPrintingSummary] = useState(false);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('All');
   const [searchTerm, setSearchTerm] = useState('');
@@ -172,12 +170,40 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData, initialSale, onRe
         }
       }
       const updatedSales = [...prev.sales];
-      updatedSales[saleIndex] = { ...oldSale, date: editFormData.date, paymentMethod: newMethod, paidDate: (oldMethod === 'Pending' && newMethod !== 'Pending') ? new Date().toISOString().split('T')[0] : oldSale.paidDate };
+      updatedSales[saleIndex] = { ...oldSale, date: editFormData.date, paymentMethod: newMethod, originalPaymentMethod: oldSale.originalPaymentMethod || (oldMethod === 'Pending' ? 'Pending' : undefined), paidDate: (oldMethod === 'Pending' && newMethod !== 'Pending') ? new Date().toISOString().split('T')[0] : oldSale.paidDate };
       setSelectedInvoice(updatedSales[saleIndex]);
       return { ...prev, sales: updatedSales, customers: updatedCustomers };
     });
     setIsEditing(false);
     alert('Invoice updated successfully.');
+  };
+
+  const updatePaymentMethod = (saleId: string, newMethod: PaymentMethod) => {
+    if (!isAdmin) return;
+    updateData(prev => {
+      const saleIndex = prev.sales.findIndex(s => s.id === saleId);
+      if (saleIndex === -1) return prev;
+      const oldSale = prev.sales[saleIndex];
+      const oldMethod = oldSale.paymentMethod;
+      if (oldMethod === newMethod) return prev;
+
+      let updatedCustomers = [...prev.customers];
+      if (oldSale.customerId) {
+        if (oldMethod === 'Pending' && newMethod !== 'Pending') {
+          updatedCustomers = updatedCustomers.map(c => c.id === oldSale.customerId ? { ...c, pendingBalance: Math.max(0, (c.pendingBalance || 0) - oldSale.totalAmount) } : c);
+        } else if (oldMethod !== 'Pending' && newMethod === 'Pending') {
+          updatedCustomers = updatedCustomers.map(c => c.id === oldSale.customerId ? { ...c, pendingBalance: (c.pendingBalance || 0) + oldSale.totalAmount } : c);
+        }
+      }
+      const updatedSales = [...prev.sales];
+      updatedSales[saleIndex] = { 
+        ...oldSale, 
+        paymentMethod: newMethod, 
+        originalPaymentMethod: oldSale.originalPaymentMethod || (oldMethod === 'Pending' ? 'Pending' : undefined),
+        paidDate: (oldMethod === 'Pending' && newMethod !== 'Pending') ? new Date().toISOString().split('T')[0] : oldSale.paidDate 
+      };
+      return { ...prev, sales: updatedSales, customers: updatedCustomers };
+    });
   };
 
   const deleteInvoice = (saleId: string) => {
@@ -232,7 +258,7 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData, initialSale, onRe
 
         <div className="no-print flex flex-wrap items-center justify-between gap-4 p-6 bg-white rounded-3xl border border-slate-100">
           <button
-            onClick={() => { setSelectedInvoice(null); onResetInitialSale?.(); setIncludeDues(false); setIsEditing(false); setIncludeOwnerCopy(false); }}
+            onClick={() => { setSelectedInvoice(null); onResetInitialSale?.(); setIsEditing(false); }}
             className="text-indigo-600 font-bold hover:bg-indigo-50 px-4 py-2 rounded-xl transition-colors flex items-center space-x-2"
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
@@ -243,16 +269,6 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData, initialSale, onRe
               <button onClick={() => handleQuickEdit(selectedInvoice)} className="bg-amber-50 text-amber-700 border border-amber-100 px-4 py-2 rounded-xl font-bold text-xs uppercase tracking-widest hover:bg-amber-100 transition-all flex items-center space-x-2 shadow-sm">
                 <IconEdit className="w-4 h-4" /><span>Edit Info</span>
               </button>
-            )}
-            <label className="flex items-center space-x-2 bg-indigo-50 px-4 py-2 rounded-xl border border-indigo-100 cursor-pointer hover:bg-indigo-100 transition-colors">
-              <input type="checkbox" checked={includeOwnerCopy} onChange={(e) => setIncludeOwnerCopy(e.target.checked)} className="w-4 h-4 text-indigo-600 rounded" />
-              <span className="text-[10px] font-black uppercase text-indigo-800">Owner's Copy</span>
-            </label>
-            {selectedInvoice.customerId && (
-              <label className="flex items-center space-x-2 bg-amber-50 px-4 py-2 rounded-xl border border-amber-100 cursor-pointer hover:bg-amber-100 transition-colors">
-                <input type="checkbox" checked={includeDues} onChange={(e) => setIncludeDues(e.target.checked)} className="w-4 h-4 text-indigo-600 rounded" />
-                <span className="text-[10px] font-black uppercase text-amber-800">Current Dues</span>
-              </label>
             )}
             <select className="px-4 py-2 border border-slate-200 rounded-xl text-sm font-bold bg-slate-50 outline-none" value={printMode} onChange={(e) => setPrintMode(e.target.value as PrintMode)}>
               <option value="A4">A4 Size</option><option value="Thermal80">80mm Thermal</option><option value="Thermal58">58mm Mobile</option>
@@ -266,7 +282,7 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData, initialSale, onRe
              <h4 className="text-sm font-black text-indigo-900 uppercase tracking-widest mb-6 flex items-center gap-2"><IconEdit className="w-5 h-5" /> Modify Record</h4>
              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-end">
                 <div><label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Billing Date</label><input type="date" className="w-full px-4 py-3 border border-indigo-200 rounded-xl outline-none font-bold" value={editFormData.date} onChange={e => setEditFormData({...editFormData, date: e.target.value})} /></div>
-                <div><label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Method</label><select className="w-full px-4 py-3 border border-indigo-200 rounded-xl outline-none font-bold" value={editFormData.paymentMethod} onChange={e => setEditFormData({...editFormData, paymentMethod: e.target.value as PaymentMethod})}><option value="Cash">Cash</option><option value="UPI">UPI</option><option value="Pending">Pending</option></select></div>
+                <div><label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Method</label><select className="w-full px-4 py-3 border border-indigo-200 rounded-xl outline-none font-bold" value={editFormData.paymentMethod} onChange={e => setEditFormData({...editFormData, paymentMethod: e.target.value as PaymentMethod})}><option value="Cash">Cash</option><option value="Cash (Settled)">Cash (Settled)</option><option value="UPI">UPI</option><option value="Pending">Pending</option></select></div>
              </div>
              <div className="flex justify-end gap-3 mt-8 pt-6 border-t border-indigo-200"><button onClick={() => setIsEditing(false)} className="px-8 py-3 text-slate-500 font-bold uppercase text-[10px] tracking-widest">Cancel</button><button onClick={saveEdit} className="px-10 py-3 bg-indigo-600 text-white font-black rounded-xl shadow-lg transition-all active:scale-95 uppercase text-[10px] tracking-widest">Apply Changes</button></div>
           </div>
@@ -287,12 +303,12 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData, initialSale, onRe
           }}>
             <div className={`${(useTemplate && template.compactMode) ? 'p-1' : (isThermal ? 'p-2' : 'p-8')} border-black`} style={{ 
               borderWidth: useTemplate ? `${template.borderWeight}px` : '2px',
+              borderColor: useTemplate ? template.brandColor : '#000',
               paddingLeft: (useTemplate && template.compactMode) ? '1mm' : (isThermal ? '2mm' : '8mm'), 
               paddingRight: (useTemplate && template.compactMode) ? '1mm' : (isThermal ? '2mm' : '8mm')
             }}>
               <div className="text-center mb-4">
-                {includeOwnerCopy && <p className="font-black text-lg tracking-widest text-slate-200 print:text-slate-200 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 -rotate-45 opacity-50 z-0">OWNER'S COPY</p>}
-                {((useTemplate ? template.showLogo : true) && data.business?.logo) && (
+                {( (useTemplate ? template.showLogo : true) && data.business?.logo) && (
                   <img src={data.business.logo} alt="Logo" className="mx-auto mb-2 object-contain opacity-90 mix-blend-multiply" style={{ width: useTemplate ? `${template.logoSize * scalingFactor}px` : '60px' }} />
                 )}
                 <h1 className="font-black uppercase tracking-tighter" style={{ fontSize: '1.6em', color: useTemplate ? template.brandColor : '#000' }}>{data.business?.name}</h1>
@@ -325,7 +341,7 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData, initialSale, onRe
               )}
 
               <table className="w-full mb-6 border-collapse table-auto">
-                <thead className="border-black uppercase" style={{ borderTopWidth: '2px', borderBottomWidth: '2px', fontSize: '0.6em' }}>
+                <thead className="uppercase" style={{ borderTop: `2px solid ${useTemplate ? template.brandColor : '#000'}`, borderBottom: `2px solid ${useTemplate ? template.brandColor : '#000'}`, fontSize: '0.6em' }}>
                   <tr>
                     <th className="py-1.5 text-left">Item</th>
                     <th className="py-1.5 text-center">Qty</th>
@@ -348,19 +364,19 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData, initialSale, onRe
                 </tbody>
               </table>
 
-              <div className="flex flex-col items-end pt-3 border-black" style={{ borderTopWidth: '2px' }}>
+              <div className="flex flex-col items-end pt-3" style={{ borderTop: `2px solid ${useTemplate ? template.brandColor : '#000'}` }}>
                   <div className="w-full md:w-2/3 space-y-1.5">
                     <div className="flex justify-between font-black uppercase" style={{ fontSize: '0.65em' }}><span className="opacity-50">Sub-Total</span><span>₹{selectedInvoice.totalAmount.toLocaleString()}</span></div>
-                    <div className="flex justify-between items-baseline">
-                      <span className="font-black uppercase" style={{ fontSize: '0.65em' }}>Net Payable</span>
-                      <span className="font-black" style={{ fontSize: '1.8em', letterSpacing: '-0.05em', color: template.applyToPrinting ? template.brandColor : '#000' }}>₹{selectedInvoice.totalAmount.toLocaleString()}</span>
+                    
+                    <div className="flex justify-between font-black uppercase" style={{ fontSize: '0.65em' }}>
+                      <span className="opacity-50">Amount Paid ({selectedInvoice.paymentMethod})</span>
+                      <span className="text-emerald-600">₹{(selectedInvoice.paymentMethod === 'Pending' ? 0 : selectedInvoice.totalAmount).toLocaleString()}</span>
                     </div>
-                    {includeDues && customer && (template.applyToPrinting ? template.showDues : true) && (
-                      <div className="flex justify-between font-black pt-1 border-t border-black border-dashed" style={{ fontSize: '0.65em' }}>
-                        <span className="uppercase">Outstanding</span>
-                        <span className="text-base">₹{currentTotalDues.toLocaleString()}</span>
-                      </div>
-                    )}
+
+                    <div className="flex justify-between items-baseline">
+                      <span className="font-black uppercase" style={{ fontSize: '0.65em' }}>Balance Due</span>
+                      <span className="font-black" style={{ fontSize: '1.8em', letterSpacing: '-0.05em', color: template.applyToPrinting ? template.brandColor : '#000' }}>₹{(selectedInvoice.paymentMethod === 'Pending' ? selectedInvoice.totalAmount : 0).toLocaleString()}</span>
+                    </div>
                   </div>
                   <p className="uppercase font-black opacity-40 mt-4" style={{ fontSize: '0.45em' }}>Pay Mode: {selectedInvoice.paymentMethod} | {currentTime}</p>
               </div>
@@ -374,11 +390,11 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData, initialSale, onRe
               {(useTemplate ? template.includeSignatures : true) && (
                 <div className="mt-12 mb-2 flex justify-between px-1">
                   <div className="text-center">
-                    <div className="border-t border-black w-16 mx-auto mb-1"></div>
+                    <div className="w-16 mx-auto mb-1" style={{ borderTop: `1px solid ${useTemplate ? template.brandColor : '#000'}` }}></div>
                     <p className="font-black uppercase opacity-60" style={{ fontSize: '0.4em' }}>Receiver</p>
                   </div>
                   <div className="text-center">
-                    <div className="border-t border-black w-16 mx-auto mb-1"></div>
+                    <div className="w-16 mx-auto mb-1" style={{ borderTop: `1px solid ${useTemplate ? template.brandColor : '#000'}` }}></div>
                     <p className="font-black uppercase opacity-60" style={{ fontSize: '0.4em' }}>Authorized</p>
                   </div>
                 </div>
@@ -387,7 +403,7 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData, initialSale, onRe
               <div className="mt-6 text-center border-t border-dotted border-gray-400 pt-3">
                 <p className="font-black uppercase tracking-widest opacity-30" style={{ fontSize: '0.45em' }}>A M Food Processing QC Passed</p>
                 {(useTemplate && template.termsText) && (
-                   <p className="mt-1 font-medium opacity-40 leading-tight" style={{ fontSize: '0.4em' }}>{template.termsText}</p>
+                   <p className="mt-1 font-medium opacity-40 leading-tight" style={{ fontSize: '0.4em' }}>{applyTemplate(template.termsText, selectedInvoice)}</p>
                 )}
               </div>
             </div>
@@ -456,7 +472,45 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData, initialSale, onRe
       <div className="bg-white rounded-[40px] shadow-sm border border-slate-200 overflow-hidden">
         <table className="w-full text-left">
           <thead className="bg-slate-50 border-b text-[10px] font-black text-slate-400 uppercase tracking-widest"><tr><th className="px-8 py-5">Date</th><th className="px-8 py-5">Customer</th><th className="px-8 py-5">Status</th><th className="px-8 py-5 text-right">Amount</th><th className="px-8 py-5 text-center">Actions</th></tr></thead>
-          <tbody className="divide-y divide-slate-100">{filteredSales.map((sale) => (<tr key={sale.id} className="hover:bg-slate-50 transition-colors"><td className="px-8 py-5 text-xs font-bold text-slate-500">{formatDate(sale.date)}</td><td className="px-8 py-5 text-sm font-black text-slate-800 uppercase">{sale.customerName}</td><td className="px-8 py-5"><span className={`text-[9px] font-black uppercase px-2 py-1 rounded border ${sale.paymentMethod === 'Pending' ? 'bg-orange-50 text-orange-600 border-orange-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'}`}>{sale.paymentMethod}</span></td><td className="px-8 py-5 text-right font-black text-slate-800">₹{sale.totalAmount.toLocaleString()}</td><td className="px-8 py-5 text-center flex justify-center space-x-2"><button onClick={() => setSelectedInvoice(sale)} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all" title="View & Print"><IconPrint className="w-5 h-5" /></button><button onClick={() => onDuplicate?.(sale)} className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-xl transition-all" title="Duplicate Bill"><IconDuplicate className="w-5 h-5" /></button>{isAdmin && (<><button onClick={() => handleQuickEdit(sale)} className="p-2 text-amber-500 hover:bg-amber-50 rounded-xl transition-all" title="Edit Invoice"><IconEdit className="w-5 h-5" /></button><button onClick={() => deleteInvoice(sale.id)} className="p-2 text-rose-400 hover:bg-rose-50 rounded-xl transition-all" title="Delete Bill"><IconTrash className="w-5 h-5" /></button></>)}</td></tr>))}</tbody>
+          <tbody className="divide-y divide-slate-100">
+            {filteredSales.map((sale) => (
+              <tr key={sale.id} className="hover:bg-slate-50 transition-colors">
+                <td className="px-8 py-5 text-xs font-bold text-slate-500">{formatDate(sale.date)}</td>
+                <td className="px-8 py-5 text-sm font-black text-slate-800 uppercase">{sale.customerName}</td>
+                <td className="px-8 py-5">
+                  {isAdmin ? (
+                    <select 
+                      value={sale.paymentMethod} 
+                      onChange={(e) => updatePaymentMethod(sale.id, e.target.value as PaymentMethod)}
+                      className={`text-[9px] font-black uppercase px-2 py-1 rounded border outline-none cursor-pointer transition-all ${
+                        sale.paymentMethod === 'Pending' 
+                          ? 'bg-orange-50 text-orange-600 border-orange-100 hover:bg-orange-100' 
+                          : 'bg-emerald-50 text-emerald-600 border-emerald-100 hover:bg-emerald-100'
+                      }`}
+                    >
+                      <option value="Cash">Cash</option>
+                      <option value="Cash (Settled)">Cash (Settled)</option>
+                      <option value="UPI">UPI</option>
+                      <option value="Pending">Pending</option>
+                    </select>
+                  ) : (
+                    <span className={`text-[9px] font-black uppercase px-2 py-1 rounded border ${sale.paymentMethod === 'Pending' ? 'bg-orange-50 text-orange-600 border-orange-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'}`}>{sale.paymentMethod}</span>
+                  )}
+                </td>
+                <td className="px-8 py-5 text-right font-black text-slate-800">₹{sale.totalAmount.toLocaleString()}</td>
+                <td className="px-8 py-5 text-center flex justify-center space-x-2">
+                  <button onClick={() => setSelectedInvoice(sale)} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all" title="View & Print"><IconPrint className="w-5 h-5" /></button>
+                  <button onClick={() => onDuplicate?.(sale)} className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-xl transition-all" title="Duplicate Bill"><IconDuplicate className="w-5 h-5" /></button>
+                  {isAdmin && (
+                    <>
+                      <button onClick={() => handleQuickEdit(sale)} className="p-2 text-amber-500 hover:bg-amber-50 rounded-xl transition-all" title="Edit Invoice"><IconEdit className="w-5 h-5" /></button>
+                      <button onClick={() => deleteInvoice(sale.id)} className="p-2 text-rose-400 hover:bg-rose-50 rounded-xl transition-all" title="Delete Bill"><IconTrash className="w-5 h-5" /></button>
+                    </>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
         </table>
       </div>
     </div>

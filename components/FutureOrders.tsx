@@ -145,11 +145,17 @@ const FutureOrders: React.FC<FutureOrdersProps> = ({ data, updateData }) => {
       isMistake: false
     };
 
-    updateData(prev => ({
-      ...prev,
-      sales: [newSale, ...prev.sales],
-      futureOrders: prev.futureOrders.map(o => o.id === order.id ? { ...o, status: 'Delivered' as const } : o)
-    }));
+    updateData(prev => {
+      const updatedCustomers = prev.customers.map(c => 
+        c.id === order.customerId ? { ...c, pendingBalance: (c.pendingBalance || 0) + order.totalAmount } : c
+      );
+      return {
+        ...prev,
+        sales: [newSale, ...prev.sales],
+        futureOrders: prev.futureOrders.map(o => o.id === order.id ? { ...o, status: 'Delivered' as const } : o),
+        customers: updatedCustomers
+      };
+    });
     alert('Order converted to Sale successfully.');
   };
 
@@ -181,10 +187,20 @@ const FutureOrders: React.FC<FutureOrdersProps> = ({ data, updateData }) => {
         o.status === 'Pending' ? { ...o, status: 'Delivered' as const } : o
       );
 
+      let updatedCustomers = [...prev.customers];
+      pendingOrders.forEach(order => {
+        if (order.customerId) {
+          updatedCustomers = updatedCustomers.map(c => 
+            c.id === order.customerId ? { ...c, pendingBalance: (c.pendingBalance || 0) + order.totalAmount } : c
+          );
+        }
+      });
+
       return {
         ...prev,
         sales: [...newSales, ...prev.sales],
-        futureOrders: updatedFutureOrders
+        futureOrders: updatedFutureOrders,
+        customers: updatedCustomers
       };
     });
 

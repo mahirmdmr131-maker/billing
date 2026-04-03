@@ -185,45 +185,114 @@ const Expenses: React.FC<ExpensesProps> = ({ data, updateData }) => {
       </div>
 
       {showForm && (
-        <div className="bg-white p-8 rounded-3xl shadow-xl border border-slate-200 animate-in fade-in zoom-in duration-300">
-          <h4 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-6 border-b pb-4">{editingExpense ? 'Modify Entry' : 'New Expense Profile'}</h4>
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Entry Date</label>
-                <input type="date" required className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none bg-slate-50 font-bold" value={formData.date} onChange={e => setFormData({ ...formData, date: e.target.value })} />
-              </div>
-              <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Operational Category</label>
-                <select className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none bg-slate-50 font-bold" value={formData.category} onChange={e => setFormData({ ...formData, category: e.target.value })}>
-                  <option>Materials</option><option>Rent</option><option>Labor</option><option>Electricity</option><option>Packaging</option><option>Transportation</option><option>Misc</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Payment Method</label>
-                <select className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none bg-slate-50 font-bold" value={formData.paymentMethod} onChange={e => setFormData({ ...formData, paymentMethod: e.target.value })}>
-                  <option>Cash</option><option>UPI</option><option>Bank Transfer</option><option>Cheque</option><option>Credit</option>
-                </select>
-              </div>
-            </div>
+        <div className="bg-white p-8 rounded-[32px] shadow-2xl border border-slate-200 animate-in fade-in zoom-in duration-300 relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-full h-1.5 bg-red-600"></div>
+          <div className="flex justify-between items-center mb-8 border-b border-slate-100 pb-4">
             <div>
-              <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Description</label>
-              <input type="text" required placeholder="Describe the transaction..." className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none bg-slate-50 font-bold" value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })} />
+              <h4 className="text-xl font-black text-slate-800 uppercase tracking-tight">{editingExpense ? 'Update Record' : 'New Expense Profile'}</h4>
+              <p className="text-[10px] text-slate-400 font-black uppercase tracking-[0.2em] mt-1">Operational Outflow Tracking</p>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Total Amount (₹)</label>
-                    <input type="number" required placeholder="0.00" className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none bg-slate-50 font-black text-lg" value={formData.amount} onChange={e => setFormData({ ...formData, amount: e.target.value })} />
+            <button onClick={resetForm} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400">
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-8">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <div className="space-y-6">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Entry Date</label>
+                    <input type="date" required className="w-full px-4 py-3 border border-slate-200 rounded-2xl outline-none bg-slate-50 font-bold focus:ring-2 focus:ring-red-500 transition-all" value={formData.date} onChange={e => setFormData({ ...formData, date: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Due Date (Optional)</label>
+                    <input type="date" className="w-full px-4 py-3 border border-slate-200 rounded-2xl outline-none bg-slate-50 font-bold focus:ring-2 focus:ring-red-500 transition-all" value={formData.dueDate} onChange={e => setFormData({ ...formData, dueDate: e.target.value })} />
+                  </div>
                 </div>
+
                 <div>
-                    <label className="block text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-2">Paid by Me (₹)</label>
-                    <input type="number" placeholder="0.00" className="w-full px-4 py-3 border-2 border-emerald-100 rounded-xl outline-none bg-emerald-50/50 font-black text-lg text-emerald-700" value={formData.paidAmount} onChange={e => setFormData({ ...formData, paidAmount: e.target.value })} />
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Operational Category</label>
+                  <div className="flex flex-wrap gap-2">
+                    {['Materials', 'Rent', 'Labor', 'Electricity', 'Packaging', 'Transportation', 'Misc'].map(cat => (
+                      <button
+                        key={cat}
+                        type="button"
+                        onClick={() => setFormData({ ...formData, category: cat })}
+                        className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border ${
+                          formData.category === cat 
+                            ? 'bg-red-600 text-white border-red-700 shadow-lg shadow-red-200 scale-105' 
+                            : 'bg-white text-slate-500 border-slate-200 hover:border-red-300 hover:text-red-600'
+                        }`}
+                      >
+                        {cat}
+                      </button>
+                    ))}
+                  </div>
                 </div>
+
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Description</label>
+                  <textarea 
+                    required 
+                    placeholder="Describe the transaction (e.g., Raw material purchase from vendor X)..." 
+                    className="w-full px-4 py-3 border border-slate-200 rounded-2xl outline-none bg-slate-50 font-bold focus:ring-2 focus:ring-red-500 transition-all min-h-[100px] resize-none" 
+                    value={formData.description} 
+                    onChange={e => setFormData({ ...formData, description: e.target.value })} 
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-6 bg-slate-50/50 p-6 rounded-[32px] border border-slate-100">
+                <div>
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Payment Method</label>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {['Cash', 'UPI', 'Bank Transfer', 'Cheque', 'Credit'].map(method => (
+                      <button
+                        key={method}
+                        type="button"
+                        onClick={() => setFormData({ ...formData, paymentMethod: method })}
+                        className={`px-3 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border ${
+                          formData.paymentMethod === method 
+                            ? 'bg-slate-900 text-white border-black shadow-lg' 
+                            : 'bg-white text-slate-500 border-slate-200 hover:border-slate-400 hover:text-slate-900'
+                        }`}
+                      >
+                        {method}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Total Bill Amount (₹)</label>
+                    <div className="relative">
+                      <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-slate-400 text-lg">₹</span>
+                      <input type="number" required placeholder="0.00" className="w-full pl-10 pr-4 py-4 border border-slate-200 rounded-2xl outline-none bg-white font-black text-2xl text-slate-800 focus:ring-2 focus:ring-red-500 transition-all" value={formData.amount} onChange={e => setFormData({ ...formData, amount: e.target.value })} />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-2">Paid Amount (₹)</label>
+                    <div className="relative">
+                      <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-emerald-400 text-lg">₹</span>
+                      <input type="number" placeholder="0.00" className="w-full pl-10 pr-4 py-4 border-2 border-emerald-100 rounded-2xl outline-none bg-emerald-50/30 font-black text-2xl text-emerald-700 focus:ring-2 focus:ring-emerald-500 transition-all" value={formData.paidAmount} onChange={e => setFormData({ ...formData, paidAmount: e.target.value })} />
+                    </div>
+                    {formData.amount && formData.paidAmount && Number(formData.amount) > Number(formData.paidAmount) && (
+                      <p className="mt-2 text-[10px] font-black text-amber-600 uppercase tracking-widest flex items-center gap-1">
+                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                        Remaining Balance: ₹{(Number(formData.amount) - Number(formData.paidAmount)).toLocaleString()}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
-            <div className="flex justify-end space-x-3 pt-6 border-t border-slate-100">
-              <button type="button" onClick={resetForm} className="px-8 py-3 text-slate-500 font-bold uppercase text-[10px] tracking-widest">Discard</button>
-              <button type="submit" className="px-10 py-3 bg-red-600 hover:bg-red-700 text-white font-black rounded-xl shadow-lg transition-all active:scale-95 uppercase text-[10px] tracking-widest">
-                {editingExpense ? 'Update Record' : 'Commit Entry'}
+
+            <div className="flex justify-end gap-4 pt-4">
+              <button type="button" onClick={resetForm} className="px-8 py-4 text-slate-500 font-black uppercase text-[10px] tracking-[0.2em] hover:text-slate-800 transition-colors">Discard Changes</button>
+              <button type="submit" className="px-12 py-4 bg-red-600 hover:bg-red-700 text-white font-black rounded-2xl shadow-xl shadow-red-100 transition-all active:scale-95 uppercase text-[10px] tracking-[0.2em]">
+                {editingExpense ? 'Update Registry' : 'Commit Transaction'}
               </button>
             </div>
           </form>

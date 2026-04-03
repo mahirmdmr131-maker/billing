@@ -1,0 +1,31 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && 
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+         (request.auth.token.email == "mahirmdmr131@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    // Sales collection
+    match /sales/{saleId} {
+      allow read: if isAuthenticated();
+      // Only allow authenticated users to create/update sales.
+      // Removed potential admin-only operations that might trigger errors.
+      allow create, update: if isAuthenticated();
+      allow delete: if isAdmin();
+    }
+
+    // Users collection
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      // Only allow admins or the user themselves to update their profile.
+      allow create, update: if isAdmin() || (isAuthenticated() && request.auth.uid == userId);
+    }
+  }
+}

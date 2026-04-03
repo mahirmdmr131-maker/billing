@@ -25,6 +25,7 @@ const Reports: React.FC<ReportsProps> = ({ data }) => {
   const totalExpenses = data.expenses.reduce((sum, e) => sum + e.amount, 0);
   const profit = totalSales - totalExpenses;
   const totalOutstanding = data.customers.reduce((sum, c) => sum + (c.pendingBalance || 0), 0);
+  const profitAfterDues = profit - totalOutstanding;
   
   const inventoryValue = data.products.reduce((sum, p) => {
     const stock = p.currentStock || 0;
@@ -101,6 +102,7 @@ const Reports: React.FC<ReportsProps> = ({ data }) => {
       ['Total Sales', totalSales],
       ['Total Expenses', totalExpenses],
       ['Net Profit', profit],
+      ['Profit After Dues', profitAfterDues],
       ['Total Outstanding Dues', totalOutstanding],
       ['Estimated Inventory Value', inventoryValue],
       [''],
@@ -270,6 +272,11 @@ const Reports: React.FC<ReportsProps> = ({ data }) => {
             <p className="text-5xl font-black tracking-tight">₹{profit.toLocaleString()}</p>
             <p className="text-white/40 text-xs font-bold mt-1">Yield after all documented overheads</p>
           </div>
+          <div className="space-y-2">
+            <h4 className="text-white/60 uppercase tracking-[0.4em] font-black text-[10px]">Profit After Dues</h4>
+            <p className="text-5xl font-black tracking-tight">₹{profitAfterDues.toLocaleString()}</p>
+            <p className="text-white/40 text-xs font-bold mt-1">Net profit minus outstanding credits</p>
+          </div>
           <div className="grid grid-cols-2 gap-10">
             <div>
               <p className="text-emerald-400 font-black text-3xl tracking-tight">₹{totalSales.toLocaleString()}</p>
@@ -294,18 +301,22 @@ const Reports: React.FC<ReportsProps> = ({ data }) => {
            </div>
 
            {/* Core Financial Block */}
-           <div className="grid grid-cols-3 gap-6 mb-12 border-2 border-black p-6 rounded-lg">
+           <div className="grid grid-cols-4 gap-6 mb-12 border-2 border-black p-6 rounded-lg">
               <div className="text-center">
                  <p className="text-[10px] font-black text-gray-500 uppercase">Gross Billing</p>
                  <p className="text-2xl font-black">₹{totalSales.toLocaleString()}</p>
               </div>
-              <div className="text-center border-x-2 border-black">
+              <div className="text-center border-l-2 border-black">
                  <p className="text-[10px] font-black text-gray-500 uppercase">Operational Expenses</p>
                  <p className="text-2xl font-black text-red-600">₹{totalExpenses.toLocaleString()}</p>
               </div>
-              <div className="text-center">
+              <div className="text-center border-l-2 border-black">
                  <p className="text-[10px] font-black text-gray-500 uppercase">Net Liquidity</p>
                  <p className="text-2xl font-black text-emerald-600">₹{profit.toLocaleString()}</p>
+              </div>
+              <div className="text-center border-l-2 border-black">
+                 <p className="text-[10px] font-black text-gray-500 uppercase">Profit After Dues</p>
+                 <p className="text-2xl font-black text-indigo-600">₹{profitAfterDues.toLocaleString()}</p>
               </div>
            </div>
 

@@ -19,6 +19,9 @@ import { IconDashboard, IconCustomers, IconProducts, IconSales, IconFutureOrders
 import { GlobalSearch } from './components/GlobalSearch';
 import { uploadToDrive, hasAccessToken, initGoogleAuth, getBackupInfo } from './utils/googleDrive';
 import { uploadToOneDrive } from './utils/oneDrive';
+import { listenToSales, syncSaleToFirestore } from './services/firebaseService';
+import { auth } from './firebase';
+import { onAuthStateChanged, signInAnonymously } from 'firebase/auth';
 
 let directoryHandle1: any = null;
 let directoryHandle2: any = null;
@@ -108,7 +111,51 @@ const App: React.FC = () => {
   const [isBusinessModalOpen, setIsBusinessModalOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isAuthReady, setIsAuthReady] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        setIsAuthReady(true);
+      } else {
+        // For simplicity in this demo, sign in anonymously if not logged in
+        signInAnonymously(auth).catch(console.error);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!isAuthReady) return;
+    const unsubscribe = listenToSales((firestoreSales) => {
+      setData(prev => {
+        const updatedSales = [...prev.sales];
+        let hasChanges = false;
+        
+        firestoreSales.forEach(fSale => {
+          const index = updatedSales.findIndex(s => s.id === fSale.id);
+          if (index !== -1) {
+            // Only update if Firestore version is newer or status changed
+            if (updatedSales[index].paymentMethod !== fSale.paymentMethod) {
+              updatedSales[index] = { ...updatedSales[index], ...fSale };
+              hasChanges = true;
+            }
+          } else {
+            // New sale from another device
+            updatedSales.push(fSale);
+            hasChanges = true;
+          }
+        });
+        
+        if (hasChanges) {
+          return { ...prev, sales: updatedSales };
+        }
+        return prev;
+      });
+    });
+    return () => unsubscribe();
+  }, [isAuthReady]);
 
   useEffect(() => {
     const timer = setTimeout(() => setShowSplash(false), 2500);
@@ -265,6 +312,39 @@ const App: React.FC = () => {
     return backedUp;
   }, []);
 
+  useEffect(() => {
+    if (!data.isInitialized) return;
+    
+    // Auto-recalculate customer balances to fix any discrepancies
+    setData(prev => {
+      let hasChanges = false;
+      const updatedCustomers = prev.customers.map(c => {
+        // Calculate correct balance: Total of all sales that are currently 'Pending'
+        // minus all settlement payments recorded.
+        const totalPendingSales = prev.sales
+          .filter(s => s.customerId === c.id && !s.isMistake && s.paymentMethod === 'Pending')
+          .reduce((sum, s) => sum + s.totalAmount, 0);
+        
+        const totalSettlements = (prev.settlements || [])
+          .filter(s => s.customerId === c.id)
+          .reduce((sum, s) => sum + s.amount, 0);
+          
+        const correctBalance = Math.max(0, totalPendingSales - totalSettlements);
+        
+        if (c.pendingBalance !== correctBalance) {
+          hasChanges = true;
+          return { ...c, pendingBalance: correctBalance };
+        }
+        return c;
+      });
+      
+      if (hasChanges) {
+        return { ...prev, customers: updatedCustomers };
+      }
+      return prev;
+    });
+  }, [data.isInitialized, data.sales, data.settlements, data.customers]);
+
   useEffect(() => { saveData(data); }, [data]);
 
   const handleSetupComplete = (business: BusinessInfo, admin: User, recoveryCode: string) => {
@@ -286,6 +366,13 @@ const App: React.FC = () => {
   const handleUpdateData = (updater: (prev: AppData) => AppData) => {
     setData(prev => {
       const next = updater(prev);
+      
+      // Sync pending sales to Firestore for payment link tracking
+      const lastSale = next.sales[next.sales.length - 1];
+      if (lastSale && lastSale.paymentMethod === 'Pending') {
+        syncSaleToFirestore(lastSale);
+      }
+
       if (next.syncImmediatelyLocal) {
         handleLocalAutoBackup(next);
         if (next.isDriveConnected && hasAccessToken()) uploadToDrive(next, next.backupFolderName);

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { AppData, Customer, Sale, NavigationTab, SaleItem, PaymentMethod, Settlement } from '../types';
 import { IconAdd, IconPrint } from './Icons';
 
@@ -189,6 +189,33 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
     closeForm();
   };
 
+  const handleUpdatePaymentMethod = (saleId: string, newMethod: PaymentMethod) => {
+    updateData(prev => {
+      const saleIndex = prev.sales.findIndex(s => s.id === saleId);
+      if (saleIndex === -1) return prev;
+      const oldSale = prev.sales[saleIndex];
+      const oldMethod = oldSale.paymentMethod;
+      if (oldMethod === newMethod) return prev;
+
+      let updatedCustomers = [...prev.customers];
+      if (oldSale.customerId) {
+        if (oldMethod === 'Pending' && newMethod !== 'Pending') {
+          updatedCustomers = updatedCustomers.map(c => c.id === oldSale.customerId ? { ...c, pendingBalance: Math.max(0, (c.pendingBalance || 0) - oldSale.totalAmount) } : c);
+        } else if (oldMethod !== 'Pending' && newMethod === 'Pending') {
+          updatedCustomers = updatedCustomers.map(c => c.id === oldSale.customerId ? { ...c, pendingBalance: (c.pendingBalance || 0) + oldSale.totalAmount } : c);
+        }
+      }
+      const updatedSales = [...prev.sales];
+      updatedSales[saleIndex] = { 
+        ...oldSale, 
+        paymentMethod: newMethod, 
+        originalPaymentMethod: oldSale.originalPaymentMethod || (oldMethod === 'Pending' ? 'Pending' : undefined),
+        paidDate: (oldMethod === 'Pending' && newMethod !== 'Pending') ? new Date().toISOString().split('T')[0] : oldSale.paidDate 
+      };
+      return { ...prev, sales: updatedSales, customers: updatedCustomers };
+    });
+  };
+
   const handleRecordPayment = (e: React.FormEvent) => {
     e.preventDefault();
     if (!viewCustomer || !paymentAmount) return;
@@ -230,7 +257,7 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
         date: paymentDate,
         amount: amountToClear,
         status: 'Settled',
-        paymentMethod: settlementMethod as "Cash" | "UPI" | "Cheque" | "Other",
+        paymentMethod: settlementMethod as PaymentMethod,
         notes: 'Direct Collection'
       };
 
@@ -282,6 +309,15 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
       };
     });
   };
+
+  useEffect(() => {
+    if (viewCustomer) {
+      const updatedCustomer = data.customers.find(c => c.id === viewCustomer.id);
+      if (updatedCustomer) {
+        setViewCustomer(updatedCustomer);
+      }
+    }
+  }, [data.customers]);
 
   const customerSales = useMemo(() => {
     if (!viewCustomer) return [];
@@ -384,7 +420,7 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
     });
 
     return { openingBalance: opening, ledgerEntries: entriesWithBalance };
-  }, [data.sales, viewCustomer, indivPrintMode, dateRange]);
+  }, [data.sales, data.settlements, viewCustomer, indivPrintMode, dateRange]);
 
   const handleQuickPrint = (customer: Customer, mode: IndividualPrintMode) => {
     setViewCustomer(customer);
@@ -555,7 +591,7 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
                if (saleIdx !== -1) {
                  updatedSales[saleIdx] = { 
                    ...updatedSales[saleIdx], 
-                   paymentMethod: 'Cash', // Assume Cash for settlement
+                   paymentMethod: 'Cash Settled', // Assume Cash Settled for settlement
                    originalPaymentMethod: 'Pending', 
                    paidDate: settlement.date 
                  };
@@ -570,6 +606,21 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
         settlements: updatedSettlements,
         customers: updatedCustomers,
         sales: updatedSales
+      };
+    });
+  };
+
+  const deleteSettlement = (settlement: Settlement) => {
+    if (!confirm('Are you sure you want to delete this settlement record?')) return;
+    updateData(prev => {
+      let updatedCustomers = [...prev.customers];
+      if (settlement.status === 'Settled' && settlement.customerId !== 'manual') {
+        updatedCustomers = updatedCustomers.map(c => c.id === settlement.customerId ? { ...c, pendingBalance: c.pendingBalance + settlement.amount } : c);
+      }
+      return {
+        ...prev,
+        settlements: (prev.settlements || []).filter(s => s.id !== settlement.id),
+        customers: updatedCustomers
       };
     });
   };
@@ -781,7 +832,7 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
                             <div>
                                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Payment Mode</label>
                                 <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200">
-                                    {(['Cash', 'UPI'] as PaymentMethod[]).map(m => (
+                                    {(['Cash', 'Cash Settled', 'UPI'] as PaymentMethod[]).map(m => (
                                         <button 
                                             key={m}
                                             type="button"
@@ -918,11 +969,17 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
                                         <td className="px-8 py-4 font-black text-indigo-600 tracking-tighter print:text-black print:px-2">#{s.invoiceNumber.split('-')[1]}</td>
                                         {!isThermal && (
                                           <td className="px-8 py-4">
-                                              <span className={`text-[10px] font-black uppercase px-2 py-1 rounded border ${
-                                                  s.paymentMethod === 'Pending' ? 'bg-orange-50 text-orange-600 border-orange-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'
-                                              } print:border-none`}>
-                                                  {s.originalPaymentMethod === 'Pending' && s.paymentMethod !== 'Pending' ? `Settled (${s.paymentMethod})` : s.paymentMethod}
-                                              </span>
+                                              <select
+                                                  value={s.paymentMethod}
+                                                  onChange={(e) => handleUpdatePaymentMethod(s.id, e.target.value as PaymentMethod)}
+                                                  className={`text-[10px] font-black uppercase px-2 py-1 rounded border cursor-pointer ${
+                                                      s.paymentMethod === 'Pending' ? 'bg-orange-50 text-orange-600 border-orange-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'
+                                                  } print:border-none`}
+                                              >
+                                                  <option value="Cash">Cash</option>
+                                                  <option value="UPI">UPI</option>
+                                                  <option value="Pending">Pending</option>
+                                              </select>
                                           </td>
                                         )}
                                         <td className="px-8 py-4 text-right font-black text-slate-800 print:text-black print:px-2">₹{s.totalAmount.toLocaleString()}</td>

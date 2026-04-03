@@ -33,8 +33,6 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices, p
   const [showAddForm, setShowAddForm] = useState(false);
   const [lastSavedSale, setLastSavedSale] = useState<Sale | null>(null);
   const [printSize, setPrintSize] = useState<PrintSize>('Thermal80');
-  const [includeOwnerCopy, setIncludeOwnerCopy] = useState(false);
-  const [includeDues, setIncludeDues] = useState(false);
   
   const customerInputRef = useRef<HTMLInputElement>(null);
 
@@ -332,7 +330,7 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices, p
               <div>
                 <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Payment Mode</label>
                 <div className="flex bg-slate-100 p-1 rounded-xl">
-                  {['Cash', 'UPI', 'Pending'].map(m => (
+                  {['Cash', 'Cash (Settled)', 'UPI', 'Pending'].map(m => (
                     <button key={m} type="button" onClick={() => setFormData({...formData, paymentMethod: m as PaymentMethod})} className={`flex-1 py-1 rounded-lg text-[9px] font-black uppercase transition-all ${formData.paymentMethod === m ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400'}`}>{m}</button>
                   ))}
                 </div>
@@ -432,16 +430,6 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices, p
               </section>
               <section className="space-y-3">
                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1">Print Options</label>
-                 <label className="flex items-center justify-between p-3 bg-slate-800/50 rounded-xl border border-slate-700 cursor-pointer hover:bg-slate-800 transition-all group">
-                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider group-hover:text-white">Owner's Copy</span>
-                    <input type="checkbox" checked={includeOwnerCopy} onChange={e => setIncludeOwnerCopy(e.target.checked)} className="w-4 h-4 text-indigo-600 rounded bg-slate-700 border-slate-600" />
-                 </label>
-                 {lastSavedSale.customerId && (
-                   <label className="flex items-center justify-between p-3 bg-slate-800/50 rounded-xl border border-slate-700 cursor-pointer hover:bg-slate-800 transition-all group">
-                      <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider group-hover:text-white">Include Dues</span>
-                      <input type="checkbox" checked={includeDues} onChange={e => setIncludeDues(e.target.checked)} className="w-4 h-4 text-indigo-600 rounded bg-slate-700 border-slate-600" />
-                   </label>
-                 )}
               </section>
             </div>
             <div className="mt-auto pt-8 border-t border-slate-800 space-y-3">
@@ -465,109 +453,110 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices, p
               wordBreak: 'break-word'
             }}>
               <div className={`${(template.applyToPrinting && template.compactMode) ? 'p-1' : (isThermal ? 'p-2' : 'p-8')} border-black`} style={{ 
-                borderWidth: template.applyToPrinting ? `${template.borderWeight}px` : '2px', 
-                paddingLeft: (template.applyToPrinting && template.compactMode) ? '1mm' : (isThermal ? '2mm' : '8mm'), 
-                paddingRight: (template.applyToPrinting && template.compactMode) ? '1mm' : (isThermal ? '2mm' : '8mm') 
-              }}>
-                <div className="text-center mb-4">
-                  {((template.applyToPrinting ? template.showLogo : true) && data.business?.logo) && (
-                    <img src={data.business.logo} alt="Logo" className="mx-auto mb-2 object-contain opacity-90 mix-blend-multiply" style={{ width: template.applyToPrinting ? `${template.logoSize * scalingFactor}px` : '60px' }} />
-                  )}
-                  <h1 className="font-black uppercase tracking-tighter" style={{ fontSize: '1.6em', color: template.applyToPrinting ? template.brandColor : '#000' }}>{data.business?.name}</h1>
-                  <p className="font-bold opacity-75 uppercase tracking-widest" style={{ fontSize: '0.65em' }}>{data.business?.tagline}</p>
-                  <div className="mt-1 font-medium" style={{ fontSize: '0.6em' }}><p>{data.business?.address}</p><p>Ph: {data.business?.phone}</p></div>
-                  <h2 className="mt-3 font-black uppercase tracking-[0.2em] py-1 text-white text-center" style={{ backgroundColor: template.applyToPrinting ? template.brandColor : '#000', fontSize: '0.75em' }}>Sale Invoice</h2>
-                </div>
-
-                <div className="flex justify-between mb-4 font-black uppercase" style={{ fontSize: '0.65em' }}>
-                  <div className="text-left flex-1">
-                    <p className="opacity-40">Client</p>
-                    <p className="text-base tracking-tight leading-tight">{lastSavedSale.customerName}</p>
-                  </div>
-                  <div className="text-right flex-1">
-                    <p className="opacity-40">Ref</p>
-                    <p>#{lastSavedSale.invoiceNumber.split('-')[1]}</p>
-                    <p>{formatDate(lastSavedSale.date)}</p>
-                  </div>
-                </div>
-
-                {(template.applyToPrinting && template.customFields && template.customFields.length > 0) && (
-                   <div className="mb-4 grid grid-cols-2 gap-2" style={{ fontSize: '0.65em' }}>
-                      {template.customFields.map(field => (
-                         <div key={field.id} className="flex flex-col">
-                            <span className="opacity-40 font-black uppercase">{field.label}</span>
-                            <span className="font-bold">{applyTemplate(field.value, lastSavedSale)}</span>
-                         </div>
-                      ))}
-                   </div>
+              borderWidth: template.applyToPrinting ? `${template.borderWeight}px` : '2px',
+              borderColor: template.applyToPrinting ? template.brandColor : '#000',
+              paddingLeft: (template.applyToPrinting && template.compactMode) ? '1mm' : (isThermal ? '2mm' : '8mm'), 
+              paddingRight: (template.applyToPrinting && template.compactMode) ? '1mm' : (isThermal ? '2mm' : '8mm')
+            }}>
+              <div className="text-center mb-4">
+                {((template.applyToPrinting ? template.showLogo : true) && data.business?.logo) && (
+                  <img src={data.business.logo} alt="Logo" className="mx-auto mb-2 object-contain opacity-90 mix-blend-multiply" style={{ width: template.applyToPrinting ? `${template.logoSize * scalingFactor}px` : '60px' }} />
                 )}
+                <h1 className="font-black uppercase tracking-tighter" style={{ fontSize: '1.6em', color: template.applyToPrinting ? template.brandColor : '#000' }}>{data.business?.name}</h1>
+                <p className="font-bold opacity-75 uppercase tracking-widest" style={{ fontSize: '0.65em' }}>{data.business?.tagline}</p>
+                <div className="mt-1 font-medium" style={{ fontSize: '0.6em' }}><p>{data.business?.address}</p><p>Ph: {data.business?.phone}</p></div>
+                <h2 className="mt-3 font-black uppercase tracking-[0.2em] py-1 text-white text-center" style={{ backgroundColor: template.applyToPrinting ? template.brandColor : '#000', fontSize: '0.75em' }}>Sale Invoice</h2>
+              </div>
 
-                <table className="w-full mb-6 border-collapse table-auto">
-                  <thead className="border-black uppercase" style={{ borderTopWidth: '2px', borderBottomWidth: '2px', fontSize: '0.6em' }}>
-                    <tr>
-                      <th className="py-1.5 text-left">Item</th>
-                      <th className="py-1.5 text-center">Qty</th>
-                      {(template.applyToPrinting ? template.showRatePerUnit : true) && <th className="py-1.5 text-right">Rate</th>}
-                      <th className="py-1.5 text-right">Total</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100 font-bold" style={{ fontSize: '0.8em' }}>
-                    {lastSavedSale.items.map((it, i) => (
-                      <tr key={i}>
-                        <td className="py-2 uppercase leading-tight pr-1">
-                          {it.productName}
-                          {(template.applyToPrinting && template.showSKU) && <div className="text-[0.6em] opacity-40">SKU: AM-{i+1}</div>}
-                        </td>
-                        <td className="py-2 text-center whitespace-nowrap">{it.quantity}{it.unit}</td>
-                        {(template.applyToPrinting ? template.showRatePerUnit : true) && <td className="py-2 text-right whitespace-nowrap">₹{it.rate}</td>}
-                        <td className="py-2 text-right whitespace-nowrap">₹{it.total.toLocaleString()}</td>
-                      </tr>
+              <div className="flex justify-between mb-4 font-black uppercase" style={{ fontSize: '0.65em' }}>
+                <div className="text-left flex-1">
+                  <p className="opacity-40">Client</p>
+                  <p className="text-base tracking-tight leading-tight">{lastSavedSale.customerName}</p>
+                </div>
+                <div className="text-right flex-1">
+                  <p className="opacity-40">Ref</p>
+                  <p>#{lastSavedSale.invoiceNumber.split('-')[1]}</p>
+                  <p>{formatDate(lastSavedSale.date)}</p>
+                </div>
+              </div>
+
+              {(template.applyToPrinting && template.customFields && template.customFields.length > 0) && (
+                 <div className="mb-4 grid grid-cols-2 gap-2" style={{ fontSize: '0.65em' }}>
+                    {template.customFields.map(field => (
+                       <div key={field.id} className="flex flex-col">
+                          <span className="opacity-40 font-black uppercase">{field.label}</span>
+                          <span className="font-bold">{applyTemplate(field.value, lastSavedSale)}</span>
+                       </div>
                     ))}
-                  </tbody>
-                </table>
+                 </div>
+              )}
 
-                <div className="flex flex-col items-end pt-3 border-black" style={{ borderTopWidth: '2px' }}>
-                   <div className="w-full md:w-2/3 space-y-1.5">
-                      <div className="flex justify-between font-black uppercase" style={{ fontSize: '0.65em' }}><span className="opacity-50">Sub-Total</span><span>₹{lastSavedSale.totalAmount.toLocaleString()}</span></div>
-                      <div className="flex justify-between items-baseline">
-                        <span className="font-black uppercase" style={{ fontSize: '0.65em' }}>Net Payable</span>
-                        <span className="font-black" style={{ fontSize: '1.8em', letterSpacing: '-0.05em', color: template.applyToPrinting ? template.brandColor : '#000' }}>₹{lastSavedSale.totalAmount.toLocaleString()}</span>
-                      </div>
-                      {includeDues && customerForDues && (template.applyToPrinting ? template.showDues : true) && (
-                        <div className="flex justify-between font-black pt-1 border-t border-black border-dashed" style={{ fontSize: '0.65em' }}>
-                          <span className="uppercase">Outstanding</span>
-                          <span className="text-base">₹{currentTotalDues.toLocaleString()}</span>
-                        </div>
-                      )}
-                   </div>
-                   <p className="uppercase font-black opacity-40 mt-4" style={{ fontSize: '0.45em' }}>Pay Mode: {lastSavedSale.paymentMethod} | {currentTime}</p>
-                </div>
+              <table className="w-full mb-6 border-collapse table-auto">
+                <thead className="uppercase" style={{ borderTop: `2px solid ${template.applyToPrinting ? template.brandColor : '#000'}`, borderBottom: `2px solid ${template.applyToPrinting ? template.brandColor : '#000'}`, fontSize: '0.6em' }}>
+                  <tr>
+                    <th className="py-1.5 text-left">Item</th>
+                    <th className="py-1.5 text-center">Qty</th>
+                    {(template.applyToPrinting ? template.showRatePerUnit : true) && <th className="py-1.5 text-right">Rate</th>}
+                    <th className="py-1.5 text-right">Total</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 font-bold" style={{ fontSize: '0.8em' }}>
+                  {lastSavedSale.items.map((it, i) => (
+                    <tr key={i}>
+                      <td className="py-2 uppercase leading-tight pr-1">
+                        {it.productName}
+                        {(template.applyToPrinting && template.showSKU) && <div className="text-[0.6em] opacity-40">SKU: AM-{i+1}</div>}
+                      </td>
+                      <td className="py-2 text-center whitespace-nowrap">{it.quantity}{it.unit}</td>
+                      {(template.applyToPrinting ? template.showRatePerUnit : true) && <td className="py-2 text-right whitespace-nowrap">₹{it.rate}</td>}
+                      <td className="py-2 text-right whitespace-nowrap">₹{it.total.toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
 
-                {(template.applyToPrinting ? template.footerText : true) && (
-                   <p className="mt-6 text-center font-bold italic opacity-60" style={{ fontSize: '0.6em' }}>
-                     {applyTemplate(template.footerText || "Thank you for your business!", lastSavedSale)}
-                   </p>
-                )}
-
-                {(template.applyToPrinting ? template.includeSignatures : true) && (
-                  <div className="mt-12 mb-2 flex justify-between px-1">
-                    <div className="text-center">
-                      <div className="border-t border-black w-16 mx-auto mb-1"></div>
-                      <p className="font-black uppercase opacity-60" style={{ fontSize: '0.4em' }}>Receiver</p>
+              <div className="flex flex-col items-end pt-3" style={{ borderTop: `2px solid ${template.applyToPrinting ? template.brandColor : '#000'}` }}>
+                  <div className="w-full md:w-2/3 space-y-1.5">
+                    <div className="flex justify-between font-black uppercase" style={{ fontSize: '0.65em' }}><span className="opacity-50">Sub-Total</span><span>₹{lastSavedSale.totalAmount.toLocaleString()}</span></div>
+                    
+                    <div className="flex justify-between font-black uppercase" style={{ fontSize: '0.65em' }}>
+                      <span className="opacity-50">Amount Paid ({lastSavedSale.paymentMethod})</span>
+                      <span className="text-emerald-600">₹{(lastSavedSale.paymentMethod === 'Pending' ? 0 : lastSavedSale.totalAmount).toLocaleString()}</span>
                     </div>
-                    <div className="text-center">
-                      <div className="border-t border-black w-16 mx-auto mb-1"></div>
-                      <p className="font-black uppercase opacity-60" style={{ fontSize: '0.4em' }}>Authorized</p>
+
+                    <div className="flex justify-between items-baseline">
+                      <span className="font-black uppercase" style={{ fontSize: '0.65em' }}>Balance Due</span>
+                      <span className="font-black" style={{ fontSize: '1.8em', letterSpacing: '-0.05em', color: template.applyToPrinting ? template.brandColor : '#000' }}>₹{(lastSavedSale.paymentMethod === 'Pending' ? lastSavedSale.totalAmount : 0).toLocaleString()}</span>
                     </div>
                   </div>
-                )}
+                  <p className="uppercase font-black opacity-40 mt-4" style={{ fontSize: '0.45em' }}>Pay Mode: {lastSavedSale.paymentMethod} | {currentTime}</p>
+              </div>
 
-                <div className="mt-6 text-center border-t border-dotted border-gray-400 pt-3">
-                  <p className="font-black uppercase tracking-widest opacity-30" style={{ fontSize: '0.45em' }}>A M Food Processing QC Passed</p>
-                  {(template.applyToPrinting && template.termsText) && (
-                     <p className="mt-1 font-medium opacity-40 leading-tight" style={{ fontSize: '0.4em' }}>{template.termsText}</p>
-                  )}
+              {(template.applyToPrinting ? template.footerText : true) && (
+                 <p className="mt-6 text-center font-bold italic opacity-60" style={{ fontSize: '0.6em' }}>
+                   {applyTemplate(template.footerText || "Thank you for your business!", lastSavedSale)}
+                 </p>
+              )}
+
+              {(template.applyToPrinting ? template.includeSignatures : true) && (
+                <div className="mt-12 mb-2 flex justify-between px-1">
+                  <div className="text-center">
+                    <div className="w-16 mx-auto mb-1" style={{ borderTop: `1px solid ${template.applyToPrinting ? template.brandColor : '#000'}` }}></div>
+                    <p className="font-black uppercase opacity-60" style={{ fontSize: '0.4em' }}>Receiver</p>
+                  </div>
+                  <div className="text-center">
+                    <div className="w-16 mx-auto mb-1" style={{ borderTop: `1px solid ${template.applyToPrinting ? template.brandColor : '#000'}` }}></div>
+                    <p className="font-black uppercase opacity-60" style={{ fontSize: '0.4em' }}>Authorized</p>
+                  </div>
                 </div>
+              )}
+
+              <div className="mt-6 text-center border-t border-dotted border-gray-400 pt-3">
+                <p className="font-black uppercase tracking-widest opacity-30" style={{ fontSize: '0.45em' }}>A M Food Processing QC Passed</p>
+                {(template.applyToPrinting && template.termsText) && (
+                   <p className="mt-1 font-medium opacity-40 leading-tight" style={{ fontSize: '0.4em' }}>{applyTemplate(template.termsText, lastSavedSale)}</p>
+                )}
+              </div>
               </div>
             </div>
           </div>
