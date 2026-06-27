@@ -120,7 +120,9 @@ const App: React.FC = () => {
         setIsAuthReady(true);
       } else {
         // For simplicity in this demo, sign in anonymously if not logged in
-        signInAnonymously(auth).catch(console.error);
+        signInAnonymously(auth).catch((error) => {
+          console.warn('Anonymous auth not enabled. Firebase sync will be disabled.');
+        });
       }
     });
     return () => unsubscribe();
@@ -319,8 +321,6 @@ const App: React.FC = () => {
     setData(prev => {
       let hasChanges = false;
       const updatedCustomers = prev.customers.map(c => {
-        // Calculate correct balance: Total of all sales that are currently 'Pending'
-        // minus all settlement payments recorded.
         const totalPendingSales = prev.sales
           .filter(s => s.customerId === c.id && !s.isMistake && s.paymentMethod === 'Pending')
           .reduce((sum, s) => sum + s.totalAmount, 0);
@@ -343,7 +343,7 @@ const App: React.FC = () => {
       }
       return prev;
     });
-  }, [data.isInitialized, data.sales, data.settlements, data.customers]);
+  }, [data.isInitialized]);
 
   useEffect(() => { saveData(data); }, [data]);
 

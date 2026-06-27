@@ -10,7 +10,7 @@
         "customerId": { "type": "string" },
         "customerName": { "type": "string" },
         "totalAmount": { "type": "number" },
-        "paymentMethod": { "type": "string", "enum": ["Cash", "Cash (Settled)", "UPI", "Pending"] },
+        "paymentMethod": { "type": "string", "enum": ["Cash", "UPI", "Pending"] },
         "paymentStatus": { "type": "string", "enum": ["pending", "paid", "failed"] },
         "paymentLinkId": { "type": "string" },
         "paymentUrl": { "type": "string" },

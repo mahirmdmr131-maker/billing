@@ -329,8 +329,8 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices, p
               </div>
               <div>
                 <label className="block text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">Payment Mode</label>
-                <div className="flex bg-slate-100 p-1 rounded-xl">
-                  {['Cash', 'Cash (Settled)', 'UPI', 'Pending'].map(m => (
+                                <div className="flex bg-slate-100 p-1 rounded-xl">
+                  {['Cash', 'UPI', 'Pending'].map(m => (
                     <button key={m} type="button" onClick={() => setFormData({...formData, paymentMethod: m as PaymentMethod})} className={`flex-1 py-1 rounded-lg text-[9px] font-black uppercase transition-all ${formData.paymentMethod === m ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-400'}`}>{m}</button>
                   ))}
                 </div>
@@ -517,17 +517,7 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices, p
 
               <div className="flex flex-col items-end pt-3" style={{ borderTop: `2px solid ${template.applyToPrinting ? template.brandColor : '#000'}` }}>
                   <div className="w-full md:w-2/3 space-y-1.5">
-                    <div className="flex justify-between font-black uppercase" style={{ fontSize: '0.65em' }}><span className="opacity-50">Sub-Total</span><span>₹{lastSavedSale.totalAmount.toLocaleString()}</span></div>
-                    
-                    <div className="flex justify-between font-black uppercase" style={{ fontSize: '0.65em' }}>
-                      <span className="opacity-50">Amount Paid ({lastSavedSale.paymentMethod})</span>
-                      <span className="text-emerald-600">₹{(lastSavedSale.paymentMethod === 'Pending' ? 0 : lastSavedSale.totalAmount).toLocaleString()}</span>
-                    </div>
-
-                    <div className="flex justify-between items-baseline">
-                      <span className="font-black uppercase" style={{ fontSize: '0.65em' }}>Balance Due</span>
-                      <span className="font-black" style={{ fontSize: '1.8em', letterSpacing: '-0.05em', color: template.applyToPrinting ? template.brandColor : '#000' }}>₹{(lastSavedSale.paymentMethod === 'Pending' ? lastSavedSale.totalAmount : 0).toLocaleString()}</span>
-                    </div>
+                    <div className="flex justify-between font-black uppercase" style={{ fontSize: '1.2em' }}><span className="opacity-50">Total Amount</span><span>₹{lastSavedSale.totalAmount.toLocaleString()}</span></div>
                   </div>
                   <p className="uppercase font-black opacity-40 mt-4" style={{ fontSize: '0.45em' }}>Pay Mode: {lastSavedSale.paymentMethod} | {currentTime}</p>
               </div>

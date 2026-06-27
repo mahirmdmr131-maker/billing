@@ -233,7 +233,7 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData, initialSale, onRe
 
     // PRINT SCALING LOGIC
     const scalingFactor = printMode === 'Thermal58' ? 0.75 : printMode === 'Thermal80' ? 0.9 : 1.0;
-    const baseFontSize = useTemplate ? template.fontSize : 12;
+    const baseFontSize = useTemplate ? template.fontSize : 14;
     const effectiveFontSize = baseFontSize * scalingFactor;
 
     return (
@@ -282,7 +282,7 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData, initialSale, onRe
              <h4 className="text-sm font-black text-indigo-900 uppercase tracking-widest mb-6 flex items-center gap-2"><IconEdit className="w-5 h-5" /> Modify Record</h4>
              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-end">
                 <div><label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Billing Date</label><input type="date" className="w-full px-4 py-3 border border-indigo-200 rounded-xl outline-none font-bold" value={editFormData.date} onChange={e => setEditFormData({...editFormData, date: e.target.value})} /></div>
-                <div><label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Method</label><select className="w-full px-4 py-3 border border-indigo-200 rounded-xl outline-none font-bold" value={editFormData.paymentMethod} onChange={e => setEditFormData({...editFormData, paymentMethod: e.target.value as PaymentMethod})}><option value="Cash">Cash</option><option value="Cash (Settled)">Cash (Settled)</option><option value="UPI">UPI</option><option value="Pending">Pending</option></select></div>
+                <div><label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Method</label><select className="w-full px-4 py-3 border border-indigo-200 rounded-xl outline-none font-bold" value={editFormData.paymentMethod} onChange={e => setEditFormData({...editFormData, paymentMethod: e.target.value as PaymentMethod})}><option value="Cash">Cash</option><option value="UPI">UPI</option><option value="Pending">Pending</option></select></div>
              </div>
              <div className="flex justify-end gap-3 mt-8 pt-6 border-t border-indigo-200"><button onClick={() => setIsEditing(false)} className="px-8 py-3 text-slate-500 font-bold uppercase text-[10px] tracking-widest">Cancel</button><button onClick={saveEdit} className="px-10 py-3 bg-indigo-600 text-white font-black rounded-xl shadow-lg transition-all active:scale-95 uppercase text-[10px] tracking-widest">Apply Changes</button></div>
           </div>
@@ -308,7 +308,7 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData, initialSale, onRe
               paddingRight: (useTemplate && template.compactMode) ? '1mm' : (isThermal ? '2mm' : '8mm')
             }}>
               <div className="text-center mb-4">
-                {( (useTemplate ? template.showLogo : true) && data.business?.logo) && (
+                {((useTemplate ? template.showLogo : true) && data.business?.logo) && (
                   <img src={data.business.logo} alt="Logo" className="mx-auto mb-2 object-contain opacity-90 mix-blend-multiply" style={{ width: useTemplate ? `${template.logoSize * scalingFactor}px` : '60px' }} />
                 )}
                 <h1 className="font-black uppercase tracking-tighter" style={{ fontSize: '1.6em', color: useTemplate ? template.brandColor : '#000' }}>{data.business?.name}</h1>
@@ -326,6 +326,7 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData, initialSale, onRe
                   <p className="opacity-40">Ref</p>
                   <p>#{selectedInvoice.invoiceNumber.split('-')[1]}</p>
                   <p>{formatDate(selectedInvoice.date)}</p>
+                  <p className="opacity-60">Time: {currentTime}</p>
                 </div>
               </div>
 
@@ -366,24 +367,15 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData, initialSale, onRe
 
               <div className="flex flex-col items-end pt-3" style={{ borderTop: `2px solid ${useTemplate ? template.brandColor : '#000'}` }}>
                   <div className="w-full md:w-2/3 space-y-1.5">
-                    <div className="flex justify-between font-black uppercase" style={{ fontSize: '0.65em' }}><span className="opacity-50">Sub-Total</span><span>₹{selectedInvoice.totalAmount.toLocaleString()}</span></div>
+                    <div className="flex justify-between font-black uppercase" style={{ fontSize: '1.2em' }}><span className="opacity-50">Total Amount</span><span>₹{selectedInvoice.totalAmount.toLocaleString()}</span></div>
                     
-                    <div className="flex justify-between font-black uppercase" style={{ fontSize: '0.65em' }}>
-                      <span className="opacity-50">Amount Paid ({selectedInvoice.paymentMethod})</span>
-                      <span className="text-emerald-600">₹{(selectedInvoice.paymentMethod === 'Pending' ? 0 : selectedInvoice.totalAmount).toLocaleString()}</span>
-                    </div>
-
-                    <div className="flex justify-between items-baseline">
-                      <span className="font-black uppercase" style={{ fontSize: '0.65em' }}>Balance Due</span>
-                      <span className="font-black" style={{ fontSize: '1.8em', letterSpacing: '-0.05em', color: template.applyToPrinting ? template.brandColor : '#000' }}>₹{(selectedInvoice.paymentMethod === 'Pending' ? selectedInvoice.totalAmount : 0).toLocaleString()}</span>
-                    </div>
                   </div>
                   <p className="uppercase font-black opacity-40 mt-4" style={{ fontSize: '0.45em' }}>Pay Mode: {selectedInvoice.paymentMethod} | {currentTime}</p>
               </div>
 
               {(useTemplate ? template.footerText : true) && (
                  <p className="mt-6 text-center font-bold italic opacity-60" style={{ fontSize: '0.6em' }}>
-                   {applyTemplate(template.footerText || "Thank you for your business!", selectedInvoice)}
+                   {applyTemplate(useTemplate ? (template.footerText || "Thank you for your business!") : "Thank you for your business!", selectedInvoice)}
                  </p>
               )}
 
@@ -402,8 +394,8 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData, initialSale, onRe
 
               <div className="mt-6 text-center border-t border-dotted border-gray-400 pt-3">
                 <p className="font-black uppercase tracking-widest opacity-30" style={{ fontSize: '0.45em' }}>A M Food Processing QC Passed</p>
-                {(useTemplate && template.termsText) && (
-                   <p className="mt-1 font-medium opacity-40 leading-tight" style={{ fontSize: '0.4em' }}>{applyTemplate(template.termsText, selectedInvoice)}</p>
+                {(useTemplate ? template.termsText : true) && (
+                   <p className="mt-1 font-medium opacity-40 leading-tight" style={{ fontSize: '0.4em' }}>{applyTemplate(useTemplate ? (template.termsText || "") : "", selectedInvoice)}</p>
                 )}
               </div>
             </div>
@@ -488,8 +480,7 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData, initialSale, onRe
                           : 'bg-emerald-50 text-emerald-600 border-emerald-100 hover:bg-emerald-100'
                       }`}
                     >
-                      <option value="Cash">Cash</option>
-                      <option value="Cash (Settled)">Cash (Settled)</option>
+                                            <option value="Cash">Cash</option>
                       <option value="UPI">UPI</option>
                       <option value="Pending">Pending</option>
                     </select>
@@ -497,7 +488,7 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData, initialSale, onRe
                     <span className={`text-[9px] font-black uppercase px-2 py-1 rounded border ${sale.paymentMethod === 'Pending' ? 'bg-orange-50 text-orange-600 border-orange-100' : 'bg-emerald-50 text-emerald-600 border-emerald-100'}`}>{sale.paymentMethod}</span>
                   )}
                 </td>
-                <td className="px-8 py-5 text-right font-black text-slate-800">₹{sale.totalAmount.toLocaleString()}</td>
+                <td className="px-8 py-5 text-right font-black text-slate-800 text-lg">₹{sale.totalAmount.toLocaleString()}</td>
                 <td className="px-8 py-5 text-center flex justify-center space-x-2">
                   <button onClick={() => setSelectedInvoice(sale)} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-xl transition-all" title="View & Print"><IconPrint className="w-5 h-5" /></button>
                   <button onClick={() => onDuplicate?.(sale)} className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-xl transition-all" title="Duplicate Bill"><IconDuplicate className="w-5 h-5" /></button>

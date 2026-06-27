@@ -87,7 +87,7 @@ export interface SaleItem {
   expiryDate?: string;  
 }
 
-export type PaymentMethod = 'Cash' | 'Cash (Settled)' | 'UPI' | 'Pending';
+export type PaymentMethod = 'Cash' | 'UPI' | 'Pending' | 'Cash Settled';
 
 export interface Sale {
   id: string;
