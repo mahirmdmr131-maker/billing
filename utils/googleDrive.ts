@@ -9,6 +9,54 @@ let accessToken: string | null = null;
 const AUTHORIZED_EMAIL = 'amfoodsupt@gmail.com';
 
 /**
+ * Checks URL hash/search for OAuth token after redirect from Google Sign-In
+ */
+export const checkUrlForOAuthToken = async (onSuccess?: (token: string, email: string) => void) => {
+  try {
+    const hashParams = new URLSearchParams(window.location.hash.substring(1));
+    const searchParams = new URLSearchParams(window.location.search);
+    
+    const token = hashParams.get('access_token') || searchParams.get('access_token');
+    const expiresIn = parseInt(hashParams.get('expires_in') || searchParams.get('expires_in') || '3600', 10);
+
+    if (token) {
+      // Clear URL params without reloading page
+      if (window.history && window.history.replaceState) {
+        window.history.replaceState(null, document.title, window.location.pathname);
+      }
+
+      let email = '';
+      try {
+        const profileRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const profileData = await profileRes.json();
+        email = profileData.email || '';
+      } catch (e) {
+        console.warn("OAuth userinfo check failed:", e);
+      }
+
+      if (email && email.toLowerCase() !== AUTHORIZED_EMAIL.toLowerCase()) {
+        accessToken = null;
+        localStorage.removeItem(TOKEN_STORAGE_KEY);
+        alert(`Access denied for ${email}. Access restricted to ${AUTHORIZED_EMAIL}.`);
+        return null;
+      }
+
+      savePersistedToken(token, expiresIn, email || AUTHORIZED_EMAIL);
+      if (onSuccess) onSuccess(token, email || AUTHORIZED_EMAIL);
+      return token;
+    }
+  } catch (err) {
+    console.error("Error parsing OAuth URL token:", err);
+  }
+  return null;
+};
+
+// Immediately check URL on module load
+checkUrlForOAuthToken();
+
+/**
  * Loads a persisted token from local storage if it hasn't expired.
  */
 const loadPersistedToken = () => {
@@ -56,53 +104,88 @@ const ensureGisLoaded = (timeout = 10000): Promise<void> => {
   });
 };
 
+export const triggerOAuthRedirect = () => {
+  const redirectUri = window.location.origin + window.location.pathname;
+  const oauthUrl = `https://accounts.google.com/o/oauth2/v2/auth?` +
+    `client_id=${encodeURIComponent(CLIENT_ID)}` +
+    `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+    `&response_type=token` +
+    `&scope=${encodeURIComponent(SCOPES)}` +
+    `&prompt=select_account`;
+  
+  window.location.href = oauthUrl;
+};
+
 export const initGoogleAuth = async (onSuccess: (token: string, email?: string) => void, autoConnect = false) => {
   try {
-    if (autoConnect && loadPersistedToken()) {
+    if (loadPersistedToken()) {
       onSuccess(accessToken!, localStorage.getItem(EMAIL_STORAGE_KEY) || AUTHORIZED_EMAIL);
       return;
     }
 
-    await ensureGisLoaded();
-    
-    const client = (window as any).google.accounts.oauth2.initTokenClient({
-      client_id: CLIENT_ID,
-      scope: SCOPES,
-      callback: async (response: any) => {
-        if (response.access_token) {
-          const tempToken = response.access_token;
-          let email = '';
-          try {
-            const profileRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
-              headers: { Authorization: `Bearer ${tempToken}` }
-            });
-            const profileData = await profileRes.json();
-            email = profileData.email;
-          } catch (e) {
-            console.warn("Identity check failed", e);
-          }
-          
-          if (email && email.toLowerCase() !== AUTHORIZED_EMAIL.toLowerCase()) {
-            accessToken = null;
-            localStorage.removeItem(TOKEN_STORAGE_KEY);
-            if (!autoConnect) alert(`Access denied for ${email}. Access restricted to ${AUTHORIZED_EMAIL}.`);
+    try {
+      await ensureGisLoaded(3000); // Wait max 3 seconds for GIS
+    } catch (gisErr) {
+      console.warn("GIS unavailable or timed out, falling back to direct OAuth redirect:", gisErr);
+      if (!autoConnect) {
+        triggerOAuthRedirect();
+      }
+      return;
+    }
+
+    if ((window as any).google?.accounts?.oauth2) {
+      const client = (window as any).google.accounts.oauth2.initTokenClient({
+        client_id: CLIENT_ID,
+        scope: SCOPES,
+        callback: async (response: any) => {
+          if (response.error) {
+            console.warn("GIS error callback, attempting direct OAuth redirect:", response);
+            if (!autoConnect) triggerOAuthRedirect();
             return;
           }
+          if (response.access_token) {
+            const tempToken = response.access_token;
+            let email = '';
+            try {
+              const profileRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+                headers: { Authorization: `Bearer ${tempToken}` }
+              });
+              const profileData = await profileRes.json();
+              email = profileData.email;
+            } catch (e) {
+              console.warn("Identity check failed", e);
+            }
+            
+            if (email && email.toLowerCase() !== AUTHORIZED_EMAIL.toLowerCase()) {
+              accessToken = null;
+              localStorage.removeItem(TOKEN_STORAGE_KEY);
+              if (!autoConnect) alert(`Access denied for ${email}. Access restricted to ${AUTHORIZED_EMAIL}.`);
+              return;
+            }
 
-          savePersistedToken(tempToken, response.expires_in, email || AUTHORIZED_EMAIL);
-          onSuccess(tempToken, email || AUTHORIZED_EMAIL);
+            savePersistedToken(tempToken, response.expires_in, email || AUTHORIZED_EMAIL);
+            onSuccess(tempToken, email || AUTHORIZED_EMAIL);
+          }
+        },
+        error_callback: () => {
+          if (!autoConnect) triggerOAuthRedirect();
         }
-      },
-    });
-    
-    if (autoConnect) {
-      const hint = localStorage.getItem(EMAIL_STORAGE_KEY) || AUTHORIZED_EMAIL;
-      client.requestAccessToken({ prompt: '', login_hint: hint });
-    } else {
-      client.requestAccessToken({ prompt: 'select_account' });
+      });
+      
+      if (autoConnect) {
+        const hint = localStorage.getItem(EMAIL_STORAGE_KEY) || AUTHORIZED_EMAIL;
+        client.requestAccessToken({ prompt: '', login_hint: hint });
+      } else {
+        client.requestAccessToken({ prompt: 'select_account' });
+      }
+    } else if (!autoConnect) {
+      triggerOAuthRedirect();
     }
   } catch (err: any) {
     console.error("GIS Error:", err);
+    if (!autoConnect) {
+      triggerOAuthRedirect();
+    }
   }
 };
 

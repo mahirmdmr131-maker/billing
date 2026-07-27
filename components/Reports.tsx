@@ -4,6 +4,7 @@ import { AppData } from '../types';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, PieChart, Pie, Cell } from 'recharts';
 import { IconPrint } from './Icons';
 import { printElement } from '../utils/printer';
+import { saveOrDownloadFile } from '../utils/fileSaver';
 
 interface ReportsProps {
   data: AppData;
@@ -94,7 +95,7 @@ const Reports: React.FC<ReportsProps> = ({ data }) => {
   });
   expCatMap.forEach((value, name) => expenseCategories.push({ name, value }));
 
-  const exportToCSV = () => {
+  const exportToCSV = async () => {
     const rows = [
       ['Report: A M Food Processing Financials'],
       ['Export Date', new Date().toLocaleString()],
@@ -123,13 +124,9 @@ const Reports: React.FC<ReportsProps> = ({ data }) => {
       rows.push([w.week, w.sales, w.expenses, w.sales - w.expenses, w.volumeKg.toFixed(2)]);
     });
 
-    const csvContent = "data:text/csv;charset=utf-8," + rows.map(r => r.join(",")).join("\n");
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `AM_Food_Report_${new Date().toISOString().split('T')[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
+    const csvString = rows.map(r => r.join(",")).join("\n");
+    const filename = `AM_Food_Report_${new Date().toISOString().split('T')[0]}.csv`;
+    await saveOrDownloadFile(filename, csvString, 'text/csv');
   };
 
   const handlePrintReport = () => {

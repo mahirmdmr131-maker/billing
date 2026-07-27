@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { AppData, BusinessInfo, AppTheme, User, Sale, Product, Customer, Expense, UpiQr, TemplateSettings, SaleItem } from '../types';
 import { initGoogleAuth, uploadToDrive, getBackupInfo, downloadFromDrive, hasAccessToken } from '../utils/googleDrive';
+import { saveOrDownloadFile } from '../utils/fileSaver';
 import { initOneDriveAuth, uploadToOneDrive } from '../utils/oneDrive';
 import { sendOTP, generateOTP } from '../utils/otp';
 
@@ -200,17 +201,11 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
     }
   };
 
-  const handleManualExport = () => {
+  const handleManualExport = async () => {
     const backupData = { ...data, currentUser: null }; // Security: Don't export active session
-    const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `AM_Food_Manual_Backup_${new Date().toISOString().split('T')[0]}_${new Date().getTime()}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    const jsonString = JSON.stringify(backupData, null, 2);
+    const filename = `AM_Food_Manual_Backup_${new Date().toISOString().split('T')[0]}_${new Date().getTime()}.json`;
+    await saveOrDownloadFile(filename, jsonString, 'application/json');
   };
 
   const handleManualImport = (e: React.ChangeEvent<HTMLInputElement>) => {

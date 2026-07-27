@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { AppData, Sale, PaymentMethod } from '../types';
 import { IconPrint, IconEdit, IconTrash, IconDuplicate } from './Icons';
 import { printElement } from '../utils/printer';
+import { saveOrDownloadFile } from '../utils/fileSaver';
 
 interface InvoicesProps {
   data: AppData;
@@ -435,16 +436,12 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData, initialSale, onRe
              <SortButton label="Customer" keyName="customer" />
              <SortButton label="Inv #" keyName="invoice" />
           </div>
-          <button onClick={() => {
+          <button onClick={async () => {
             const rows = [[`Invoice Export (${statusFilter}) - A M Food Processing`],['Date', 'Invoice #', 'Customer', 'Status', 'Amount (₹)']];
             filteredSales.forEach(s => { rows.push([formatDate(s.date), s.invoiceNumber, s.customerName, s.paymentMethod, s.totalAmount.toString()]); });
-            const csvContent = "data:text/csv;charset=utf-8," + rows.map(r => r.map(c => `"${c}"`).join(",")).join("\n");
-            const encodedUri = encodeURI(csvContent);
-            const link = document.createElement("a");
-            link.setAttribute("href", encodedUri);
-            link.setAttribute("download", `AM_Invoices_${statusFilter}_${new Date().toISOString().split('T')[0]}.csv`);
-            document.body.appendChild(link);
-            link.click();
+            const csvString = rows.map(r => r.map(c => `"${c}"`).join(",")).join("\n");
+            const filename = `AM_Invoices_${statusFilter}_${new Date().toISOString().split('T')[0]}.csv`;
+            await saveOrDownloadFile(filename, csvString, 'text/csv');
           }} className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all">Excel Export</button>
           <button onClick={() => { setIsPrintingSummary(true); setTimeout(() => { printElement('invoices-summary-print', 'Invoices Summary'); setIsPrintingSummary(false); }, 500); }} className="bg-slate-900 text-white px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all">Print Summary</button>
         </div>

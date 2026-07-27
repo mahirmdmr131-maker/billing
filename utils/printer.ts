@@ -1,4 +1,5 @@
 import { Sale } from '../types';
+import { saveOrDownloadFile } from './fileSaver';
 
 /**
  * Enhanced Printer Utility for Web, Android WebView / Capacitor Apps & Mobile Browsers
@@ -7,6 +8,13 @@ import { Sale } from '../types';
 // Isolated iframe print helper that works across Android WebViews & standard browsers
 export const printElement = (elementId: string | HTMLElement, title = 'Invoice') => {
   try {
+    // Check if Android Native Print Spooler interface is available
+    const androidBridge = (window as any).AndroidBridge;
+    if (androidBridge && typeof androidBridge.printDocument === 'function') {
+      androidBridge.printDocument(title);
+      return;
+    }
+
     let targetEl: HTMLElement | null = null;
 
     if (typeof elementId === 'string') {
@@ -243,48 +251,25 @@ export const printViaBluetoothThermal = async (sale: Sale, template?: any): Prom
  */
 export const shareOrSaveInvoice = async (sale: Sale, template?: any) => {
   const textContent = formatSaleAsText(sale, template);
-
-  if (navigator.share) {
-    try {
-      await navigator.share({
-        title: `Invoice #${sale.invoiceNumber}`,
-        text: textContent
-      });
-      return;
-    } catch (e) {
-      console.log('Share dismissed or failed, falling back to download');
-    }
-  }
-
-  // Fallback: Download HTML file
   const element = document.getElementById('print-engine');
   const htmlContent = element ? element.outerHTML : `<pre>${textContent}</pre>`;
 
-  const blob = new Blob([`
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <title>Invoice #${sale.invoiceNumber}</title>
-      <meta charset="utf-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <style>
-        body { font-family: monospace, sans-serif; padding: 20px; background: #fff; color: #000; }
-        @media print { body { padding: 0; } }
-      </style>
-    </head>
-    <body>
-      ${htmlContent}
-      <button onclick="window.print()" style="margin-top:20px; padding:10px 20px; background:#4f46e5; color:#fff; border:none; border-radius:8px; font-weight:bold;">Print Document</button>
-    </body>
-    </html>
-  `], { type: 'text/html' });
+  const invoiceHtml = `<!DOCTYPE html>
+<html>
+<head>
+  <title>Invoice #${sale.invoiceNumber}</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body { font-family: monospace, sans-serif; padding: 20px; background: #fff; color: #000; }
+    @media print { body { padding: 0; } }
+  </style>
+</head>
+<body>
+  ${htmlContent}
+  <button onclick="window.print()" style="margin-top:20px; padding:10px 20px; background:#4f46e5; color:#fff; border:none; border-radius:8px; font-weight:bold;">Print Document</button>
+</body>
+</html>`;
 
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `Invoice_${sale.invoiceNumber}.html`;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  await saveOrDownloadFile(`Invoice_${sale.invoiceNumber}.html`, invoiceHtml, 'text/html');
 };

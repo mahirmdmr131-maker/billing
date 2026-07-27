@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { AppData, Expense } from '../types';
 import { IconAdd, IconPrint } from './Icons';
 import { printElement } from '../utils/printer';
+import { saveOrDownloadFile } from '../utils/fileSaver';
 
 interface ExpensesProps {
   data: AppData;
@@ -75,7 +76,7 @@ const Expenses: React.FC<ExpensesProps> = ({ data, updateData }) => {
     }, 150);
   };
 
-  const exportToCSV = () => {
+  const exportToCSV = async () => {
     const rows = [
       ['Expense Report - A M Food Processing'],
       ['Export Date', new Date().toLocaleString()],
@@ -95,13 +96,9 @@ const Expenses: React.FC<ExpensesProps> = ({ data, updateData }) => {
       ]);
     });
 
-    const csvContent = "data:text/csv;charset=utf-8," + rows.map(r => r.map(c => `"${c}"`).join(",")).join("\n");
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `AM_Food_Expenses_${new Date().toISOString().split('T')[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
+    const csvString = rows.map(r => r.map(c => `"${c}"`).join(",")).join("\n");
+    const filename = `AM_Food_Expenses_${new Date().toISOString().split('T')[0]}.csv`;
+    await saveOrDownloadFile(filename, csvString, 'text/csv');
   };
 
   const handleSubmit = (e: React.FormEvent) => {
