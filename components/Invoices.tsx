@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { AppData, Sale, PaymentMethod } from '../types';
 import { IconPrint, IconEdit, IconTrash, IconDuplicate } from './Icons';
+import { printElement } from '../utils/printer';
 
 interface InvoicesProps {
   data: AppData;
@@ -141,7 +142,7 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData, initialSale, onRe
   }, [filteredSales]);
 
   const handlePrint = () => {
-    window.print();
+    printElement('print-engine', selectedInvoice ? `Invoice ${selectedInvoice.invoiceNumber}` : 'Invoice');
   };
 
   const handleQuickEdit = (sale: Sale) => {
@@ -445,7 +446,7 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData, initialSale, onRe
             document.body.appendChild(link);
             link.click();
           }} className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all">Excel Export</button>
-          <button onClick={() => { setIsPrintingSummary(true); setTimeout(() => { window.print(); setIsPrintingSummary(false); }, 500); }} className="bg-slate-900 text-white px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all">Print Summary</button>
+          <button onClick={() => { setIsPrintingSummary(true); setTimeout(() => { printElement('invoices-summary-print', 'Invoices Summary'); setIsPrintingSummary(false); }, 500); }} className="bg-slate-900 text-white px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all">Print Summary</button>
         </div>
       </div>
 

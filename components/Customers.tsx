@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { AppData, Customer, Sale, NavigationTab, SaleItem, PaymentMethod, Settlement } from '../types';
 import { IconAdd, IconPrint } from './Icons';
+import { printElement } from '../utils/printer';
 
 interface CustomersProps {
   data: AppData;
@@ -390,7 +391,7 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
     setViewCustomer(customer);
     setIndivPrintMode(mode);
     setTimeout(() => {
-      window.print();
+      printElement('customer-print-area', `Customer Ledger - ${customer.name}`);
     }, 500);
   };
 
@@ -398,14 +399,14 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
     setSelectedSettlementDate(date);
     setIndivPrintMode('settlements');
     setTimeout(() => {
-      window.print();
+      printElement('customer-print-area', `Settlement Receipt - ${date}`);
     }, 500);
   };
 
   const handleGlobalSummaryPrint = () => {
     setIsPrintingGlobalSummary(true);
     setTimeout(() => {
-      window.print();
+      printElement('global-summary-print', 'Customer Balances Summary');
       setIsPrintingGlobalSummary(false);
     }, 500);
   };
@@ -731,7 +732,7 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
             </select>
 
             <button 
-              onClick={() => window.print()}
+              onClick={() => printElement('customer-print-area', `Customer Ledger - ${viewCustomer?.name || ''}`)}
               className="flex items-center space-x-2 bg-slate-900 text-white px-6 py-2 rounded-xl font-bold hover:bg-black transition-all active:scale-95 shadow-lg"
             >
               <IconPrint />
@@ -740,7 +741,7 @@ const Customers: React.FC<CustomersProps> = ({ data, updateData, onNavigateToInv
           </div>
         </div>
         
-        <div className={`print-area-wrapper transition-all duration-300 ${isThermal58 ? 'max-w-[280px]' : printSize === 'Thermal80' ? 'max-w-[360px]' : 'max-w-full'} mx-auto`}>
+        <div id="customer-print-area" className={`print-area-wrapper transition-all duration-300 ${isThermal58 ? 'max-w-[280px]' : printSize === 'Thermal80' ? 'max-w-[360px]' : 'max-w-full'} mx-auto`}>
           <div className={`bg-white shadow-sm rounded-3xl p-0 overflow-hidden border border-slate-100 print:border-none print:shadow-none print:rounded-none`}>
             <div className={`bg-indigo-900 rounded-3xl p-8 text-white shadow-xl flex flex-col md:flex-row justify-between gap-6 relative overflow-hidden print:bg-white print:text-black print:shadow-none print:border-b-2 print:border-black print:rounded-none ${isThermal ? 'print:p-2' : ''}`}>
               <div className="hidden print:block text-center w-full mb-6">

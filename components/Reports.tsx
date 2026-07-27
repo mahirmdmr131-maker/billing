@@ -3,6 +3,7 @@ import React, { useState, useMemo } from 'react';
 import { AppData } from '../types';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, PieChart, Pie, Cell } from 'recharts';
 import { IconPrint } from './Icons';
+import { printElement } from '../utils/printer';
 
 interface ReportsProps {
   data: AppData;
@@ -133,9 +134,8 @@ const Reports: React.FC<ReportsProps> = ({ data }) => {
 
   const handlePrintReport = () => {
     setIsPrinting(true);
-    // Short delay to ensure React renders the print-only div before dialog opens
     setTimeout(() => {
-      window.print();
+      printElement('reports-print-area', 'Business Performance Report');
       setIsPrinting(false);
     }, 300);
   };
@@ -292,7 +292,7 @@ const Reports: React.FC<ReportsProps> = ({ data }) => {
 
       {/* Hidden Print Report View */}
       {isPrinting && (
-        <div className="print-only hidden print:block bg-white text-black p-10" style={{ fontFamily: 'sans-serif' }}>
+        <div id="reports-print-area" className="print-only hidden print:block bg-white text-black p-10" style={{ fontFamily: 'sans-serif' }}>
            <div className="text-center mb-10 border-b-2 border-black pb-8">
               {data.business?.logo && <img src={data.business.logo} alt="Logo" className="w-32 mx-auto mb-4 object-contain" />}
               <h1 className="text-4xl font-black uppercase tracking-tight">{data.business?.name}</h1>

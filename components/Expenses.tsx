@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { AppData, Expense } from '../types';
 import { IconAdd, IconPrint } from './Icons';
+import { printElement } from '../utils/printer';
 
 interface ExpensesProps {
   data: AppData;
@@ -60,7 +61,7 @@ const Expenses: React.FC<ExpensesProps> = ({ data, updateData }) => {
     setPrintTarget('single');
     setActivePrintExpense(expense);
     setTimeout(() => {
-      window.print();
+      printElement('expense-print-area', `Expense Voucher - ${expense.category}`);
       setPrintTarget(null);
       setActivePrintExpense(null);
     }, 150);
@@ -69,7 +70,7 @@ const Expenses: React.FC<ExpensesProps> = ({ data, updateData }) => {
   const handlePrintAll = () => {
     setPrintTarget('all');
     setTimeout(() => {
-      window.print();
+      printElement('expense-print-area', 'Expense Ledger');
       setPrintTarget(null);
     }, 150);
   };
@@ -344,7 +345,7 @@ const Expenses: React.FC<ExpensesProps> = ({ data, updateData }) => {
 
       {/* Hidden Print Layouts */}
       {printTarget === 'single' && activePrintExpense && (
-        <div className="print-only hidden print:block bg-white text-black p-12" style={{ fontFamily: 'monospace' }}>
+        <div id="expense-print-area" className="print-only hidden print:block bg-white text-black p-12" style={{ fontFamily: 'monospace' }}>
            <div className="border-2 border-black p-8">
               <div className="text-center mb-8 border-b-2 border-black pb-4">
                  {data.business?.logo && <img src={data.business.logo} alt="Logo" className="w-24 mx-auto mb-4 object-contain" />}
@@ -377,7 +378,7 @@ const Expenses: React.FC<ExpensesProps> = ({ data, updateData }) => {
       )}
 
       {printTarget === 'all' && (
-        <div className="print-only hidden print:block bg-white text-black p-10" style={{ fontFamily: 'sans-serif' }}>
+        <div id="expense-print-area" className="print-only hidden print:block bg-white text-black p-10" style={{ fontFamily: 'sans-serif' }}>
            <div className="text-center mb-10 border-b-2 border-black pb-6">
               {data.business?.logo && <img src={data.business.logo} alt="Logo" className="w-24 mx-auto mb-4 object-contain" />}
               <h1 className="text-3xl font-black uppercase">{data.business?.name}</h1>

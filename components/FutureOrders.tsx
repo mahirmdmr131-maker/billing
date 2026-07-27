@@ -2,6 +2,7 @@
 import React, { useState, useMemo } from 'react';
 import { AppData, FutureOrder, SaleItem, Customer, Product, Sale } from '../types';
 import { IconAdd, IconPrint } from './Icons';
+import { printElement } from '../utils/printer';
 
 interface FutureOrdersProps {
   data: AppData;
@@ -208,7 +209,7 @@ const FutureOrders: React.FC<FutureOrdersProps> = ({ data, updateData }) => {
   };
 
   const handlePrint = () => {
-    window.print();
+    printElement('future-orders-print-area', 'Future Orders Manifest');
   };
 
   const isThermal = printSize === 'Thermal80' || printSize === 'Thermal58';
@@ -454,7 +455,7 @@ const FutureOrders: React.FC<FutureOrdersProps> = ({ data, updateData }) => {
            </div>
 
            {/* PRINT ONLY CONTENT */}
-           <div className={`print-only hidden print:block bg-white text-black transition-all duration-300 ${printSize === 'Thermal58' ? 'max-w-[280px] p-2 text-[10px]' : printSize === 'Thermal80' ? 'max-w-[360px] p-4 text-xs' : 'max-w-full p-12 text-sm'} mx-auto`} style={{ fontFamily: isThermal ? 'monospace' : 'sans-serif' }}>
+           <div id="future-orders-print-area" className={`print-only hidden print:block bg-white text-black transition-all duration-300 ${printSize === 'Thermal58' ? 'max-w-[280px] p-2 text-[10px]' : printSize === 'Thermal80' ? 'max-w-[360px] p-4 text-xs' : 'max-w-full p-12 text-sm'} mx-auto`} style={{ fontFamily: isThermal ? 'monospace' : 'sans-serif' }}>
               <div className="border-2 border-black p-4">
                  <div className="text-center mb-6 pb-4 border-b-2 border-black">
                     {data.business?.logo && <img src={data.business.logo} alt="Logo" className={`${isLargeLogo ? 'w-48' : 'w-24'} mx-auto mb-4 object-contain`} />}

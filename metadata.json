@@ -1,5 +1,8 @@
 {
   "name": "AM-Manager",
   "description": "A complete offline business management suite for A M Food Processing, featuring sales tracking, expense management, invoice generation, and financial reporting.",
-  "requestFramePermissions": ["geolocation"]
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ]
 }

@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { AppData, Sale, SaleItem, PaymentMethod, Customer, Product } from '../types';
 import { IconAdd, IconPrint } from './Icons';
+import { printElement, printViaBluetoothThermal, shareOrSaveInvoice } from '../utils/printer';
 
 interface SalesProps {
   data: AppData;
@@ -33,6 +34,7 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices, p
   const [showAddForm, setShowAddForm] = useState(false);
   const [lastSavedSale, setLastSavedSale] = useState<Sale | null>(null);
   const [printSize, setPrintSize] = useState<PrintSize>('Thermal80');
+  const [btStatus, setBtStatus] = useState<string | null>(null);
   
   const customerInputRef = useRef<HTMLInputElement>(null);
 
@@ -410,13 +412,13 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices, p
       )}
 
       {lastSavedSale && (
-        <div className="fixed inset-0 z-[150] flex flex-col md:flex-row bg-slate-950/95 backdrop-blur-2xl animate-in fade-in duration-300 overflow-hidden print:static print:bg-white print:backdrop-blur-none">
-          <div className="no-print w-full md:w-80 bg-slate-900 border-r border-slate-800 p-8 flex flex-col overflow-y-auto no-scrollbar">
-            <div className="mb-8 border-b border-slate-800 pb-4 text-center">
-              <div className="w-16 h-16 bg-emerald-500/10 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-4 shadow-inner ring-4 ring-emerald-500/5">
-                <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+        <div className="fixed inset-0 z-[150] flex flex-col md:flex-row bg-slate-950/95 backdrop-blur-2xl animate-in fade-in duration-300 overflow-y-auto md:overflow-hidden touch-scroll print:static print:bg-white print:backdrop-blur-none">
+          <div className="no-print w-full md:w-80 bg-slate-900 border-b md:border-b-0 md:border-r border-slate-800 p-4 sm:p-6 md:p-8 flex flex-col shrink-0 md:overflow-y-auto max-h-none md:max-h-full">
+            <div className="mb-6 md:mb-8 border-b border-slate-800 pb-4 text-center">
+              <div className="w-12 h-12 md:w-16 md:h-16 bg-emerald-500/10 text-emerald-500 rounded-full flex items-center justify-center mx-auto mb-3 shadow-inner ring-4 ring-emerald-500/5">
+                <svg className="w-6 h-6 md:w-8 md:h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
               </div>
-              <h3 className="text-white font-black uppercase text-lg tracking-widest">SALE SAVED</h3>
+              <h3 className="text-white font-black uppercase text-base md:text-lg tracking-widest">SALE SAVED</h3>
               <p className="text-slate-500 text-[10px] uppercase font-bold mt-1 tracking-widest">{lastSavedSale.invoiceNumber}</p>
             </div>
             <div className="space-y-6">
@@ -430,16 +432,45 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices, p
               </section>
               <section className="space-y-3">
                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1">Print Options</label>
+                 {btStatus && (
+                   <div className="p-3 bg-indigo-950 border border-indigo-700/50 rounded-xl text-[10px] text-indigo-300 font-bold">
+                     {btStatus}
+                   </div>
+                 )}
               </section>
             </div>
-            <div className="mt-auto pt-8 border-t border-slate-800 space-y-3">
-              <button onClick={() => window.print()} className="w-full py-5 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-2xl shadow-xl transition-all active:scale-95 flex items-center justify-center space-x-3 text-xs uppercase tracking-widest"><IconPrint className="w-5 h-5" /><span>Print Document</span></button>
-              <button onClick={() => { setLastSavedSale(null); resetForm(); setShowAddForm(true); }} className="w-full py-5 bg-emerald-600 text-white font-black rounded-2xl text-[10px] uppercase tracking-widest shadow-lg hover:bg-emerald-700 transition-all active:scale-95 flex items-center justify-center space-x-2"><IconAdd className="w-4 h-4" /><span>Start Next Bill</span></button>
-              <button onClick={() => { setLastSavedSale(null); resetForm(); }} className="w-full py-5 text-slate-500 hover:text-rose-500 font-black text-[10px] uppercase tracking-widest">Close View</button>
+            <div className="mt-6 md:mt-auto pt-6 md:pt-8 border-t border-slate-800 space-y-3">
+              <button onClick={() => {
+                printElement('print-engine', `Invoice ${lastSavedSale.invoiceNumber}`);
+              }} className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-2xl shadow-xl transition-all active:scale-95 flex items-center justify-center space-x-3 text-xs uppercase tracking-widest">
+                <IconPrint className="w-5 h-5" />
+                <span>Print Spooler</span>
+              </button>
+
+              <button onClick={async () => {
+                setBtStatus('Connecting to Bluetooth Thermal Printer...');
+                const res = await printViaBluetoothThermal(lastSavedSale, template);
+                setBtStatus(res.message);
+                setTimeout(() => setBtStatus(null), 5000);
+              }} className="w-full py-4 bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-indigo-500/30 font-black rounded-2xl shadow-md transition-all active:scale-95 flex items-center justify-center space-x-2 text-[10px] uppercase tracking-widest">
+                <span>📱 Bluetooth Thermal Print</span>
+              </button>
+
+              <button onClick={() => {
+                shareOrSaveInvoice(lastSavedSale, template);
+              }} className="w-full py-4 bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-emerald-500/30 font-black rounded-2xl shadow-md transition-all active:scale-95 flex items-center justify-center space-x-2 text-[10px] uppercase tracking-widest">
+                <span>📄 Share / Save Invoice</span>
+              </button>
+
+              <button onClick={() => { setLastSavedSale(null); resetForm(); setShowAddForm(true); }} className="w-full py-4 bg-emerald-600 text-white font-black rounded-2xl text-[10px] uppercase tracking-widest shadow-lg hover:bg-emerald-700 transition-all active:scale-95 flex items-center justify-center space-x-2">
+                <IconAdd className="w-4 h-4" />
+                <span>Start Next Bill</span>
+              </button>
+              <button onClick={() => { setLastSavedSale(null); resetForm(); }} className="w-full py-3 text-slate-500 hover:text-rose-500 font-black text-[10px] uppercase tracking-widest">Close View</button>
             </div>
           </div>
           
-          <div className="flex-1 bg-slate-950 overflow-y-auto p-4 md:p-12 flex justify-center no-scrollbar print:static print:block print:p-0 print:bg-white print:overflow-visible">
+          <div className="flex-1 bg-slate-950 overflow-y-auto p-4 md:p-12 flex justify-center items-start min-h-[400px] md:min-h-0 touch-scroll print:static print:block print:p-0 print:bg-white print:overflow-visible">
             {/* CANVAS POWERED PRINT ENGINE */}
             <div id="print-engine" className="bg-white shadow-2xl transition-all duration-300 print:shadow-none print:m-0 print:static" style={{ 
               width: paperWidth, 
