@@ -3,6 +3,7 @@ import { AppData, Sale, PaymentMethod } from '../types';
 import { IconPrint, IconEdit, IconTrash, IconDuplicate } from './Icons';
 import { printElement } from '../utils/printer';
 import { saveOrDownloadFile } from '../utils/fileSaver';
+import { PrinterModal } from './PrinterModal';
 
 interface InvoicesProps {
   data: AppData;
@@ -34,6 +35,7 @@ const applyTemplate = (text: string, sale: Sale) => {
 const Invoices: React.FC<InvoicesProps> = ({ data, updateData, initialSale, onResetInitialSale, onDuplicate }) => {
   const [selectedInvoice, setSelectedInvoice] = useState<Sale | null>(null);
   const [printMode, setPrintMode] = useState<PrintMode>('Thermal80');
+  const [showPrinterModal, setShowPrinterModal] = useState(false);
   const [isPrintingSummary, setIsPrintingSummary] = useState(false);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('All');
   const [searchTerm, setSearchTerm] = useState('');
@@ -275,7 +277,10 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData, initialSale, onRe
             <select className="px-4 py-2 border border-slate-200 rounded-xl text-sm font-bold bg-slate-50 outline-none" value={printMode} onChange={(e) => setPrintMode(e.target.value as PrintMode)}>
               <option value="A4">A4 Size</option><option value="Thermal80">80mm Thermal</option><option value="Thermal58">58mm Mobile</option>
             </select>
-            <button onClick={handlePrint} className="bg-indigo-600 text-white px-6 py-2 rounded-xl font-black text-xs uppercase tracking-widest shadow-lg active:scale-95 flex items-center space-x-2"><IconPrint /><span>Print Bill</span></button>
+            <button onClick={() => setShowPrinterModal(true)} className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-5 py-2 rounded-xl font-black text-xs uppercase tracking-widest shadow-lg active:scale-95 flex items-center space-x-2">
+              <IconPrint /><span>🖨️ Universal Print Hub</span>
+            </button>
+            <button onClick={handlePrint} className="bg-indigo-600 text-white px-6 py-2 rounded-xl font-black text-xs uppercase tracking-widest shadow-lg active:scale-95 flex items-center space-x-2"><IconPrint /><span>Quick Print</span></button>
           </div>
         </div>
 
@@ -403,6 +408,15 @@ const Invoices: React.FC<InvoicesProps> = ({ data, updateData, initialSale, onRe
             </div>
           </div>
         </div>
+        {/* Universal Printer Modal */}
+        <PrinterModal
+          isOpen={showPrinterModal}
+          onClose={() => setShowPrinterModal(false)}
+          sale={selectedInvoice}
+          elementId="print-engine"
+          title={`Invoice ${selectedInvoice.invoiceNumber}`}
+          template={data.templateSettings}
+        />
       </div>
     );
   }

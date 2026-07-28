@@ -4,6 +4,8 @@ import { initGoogleAuth, uploadToDrive, getBackupInfo, downloadFromDrive, hasAcc
 import { saveOrDownloadFile } from '../utils/fileSaver';
 import { initOneDriveAuth, uploadToOneDrive } from '../utils/oneDrive';
 import { sendOTP, generateOTP } from '../utils/otp';
+import { P2PNetworkSync } from './P2PNetworkSync';
+import { BiometricAttendance } from './BiometricAttendance';
 
 interface SettingsProps {
   data: AppData;
@@ -17,7 +19,7 @@ type PrintSize = 'A4' | 'Thermal80' | 'Thermal58';
 
 const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onLogout, onSetLocalHandle }) => {
   const isAdmin = data.currentUser?.role === 'admin';
-  const [settingsTab, setSettingsTab] = useState<'app' | 'template' | 'security' | 'sync'>('app');
+  const [settingsTab, setSettingsTab] = useState<'app' | 'template' | 'security' | 'sync' | 'biometric'>('app');
   const [previewSize, setPreviewSize] = useState<PrintSize>('Thermal80');
   
   // Admin State
@@ -349,9 +351,9 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
 
       <div className="max-w-6xl mx-auto space-y-8 pb-20">
       <div className="flex bg-white p-2 rounded-2xl shadow-sm border border-slate-100 overflow-x-auto no-scrollbar no-print">
-        {(['app', 'template', 'security', 'sync'] as const).map(t => (
-          <button key={t} onClick={() => setSettingsTab(t)} className={`px-8 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${settingsTab === t ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}>
-            {t === 'security' ? 'Access & Security' : t}
+        {(['app', 'template', 'security', 'sync', 'biometric'] as const).map(t => (
+          <button key={t} onClick={() => setSettingsTab(t)} className={`px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${settingsTab === t ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}>
+            {t === 'security' ? 'Access & Security' : t === 'biometric' ? '📇 Biometric Attendance' : t}
           </button>
         ))}
       </div>
@@ -835,9 +837,13 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
       )}
 
       {settingsTab === 'sync' && isAdmin && (
-        <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden animate-in fade-in duration-300">
-           <div className="bg-slate-950 px-8 py-6 text-white"><h3 className="text-xl font-black uppercase tracking-tight">Data Archive Resonance</h3></div>
-           <div className="p-8 space-y-8">
+        <div className="space-y-8 animate-in fade-in duration-300">
+          {/* Local Network Peer-to-Peer Scanning & Data Sync */}
+          <P2PNetworkSync appData={data} onUpdateAppData={(newData) => updateData(() => newData)} />
+
+          <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+             <div className="bg-slate-950 px-8 py-6 text-white"><h3 className="text-xl font-black uppercase tracking-tight">Data Archive Resonance</h3></div>
+             <div className="p-8 space-y-8">
               {/* Local Folder Management */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                  {/* Primary Local Folder */}
@@ -945,6 +951,11 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
               </div>
            </div>
         </div>
+        </div>
+      )}
+
+      {settingsTab === 'biometric' && (
+        <BiometricAttendance />
       )}
     </div>
     </>

@@ -2,6 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { AppData, Sale, SaleItem, PaymentMethod, Customer, Product } from '../types';
 import { IconAdd, IconPrint } from './Icons';
 import { printElement, printViaBluetoothThermal, shareOrSaveInvoice } from '../utils/printer';
+import { PrinterModal } from './PrinterModal';
 
 interface SalesProps {
   data: AppData;
@@ -35,6 +36,7 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices, p
   const [lastSavedSale, setLastSavedSale] = useState<Sale | null>(null);
   const [printSize, setPrintSize] = useState<PrintSize>('Thermal80');
   const [btStatus, setBtStatus] = useState<string | null>(null);
+  const [showPrinterModal, setShowPrinterModal] = useState(false);
   
   const customerInputRef = useRef<HTMLInputElement>(null);
 
@@ -440,11 +442,15 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices, p
               </section>
             </div>
             <div className="mt-6 md:mt-auto pt-6 md:pt-8 border-t border-slate-800 space-y-3">
+              <button onClick={() => setShowPrinterModal(true)} className="w-full py-4 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-black rounded-2xl shadow-xl transition-all active:scale-95 flex items-center justify-center space-x-2 text-xs uppercase tracking-widest ring-2 ring-indigo-400/50">
+                <IconPrint className="w-5 h-5" />
+                <span>🖨️ Universal Print Hub (BT / WiFi / USB / PC)</span>
+              </button>
+
               <button onClick={() => {
                 printElement('print-engine', `Invoice ${lastSavedSale.invoiceNumber}`);
-              }} className="w-full py-4 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-2xl shadow-xl transition-all active:scale-95 flex items-center justify-center space-x-3 text-xs uppercase tracking-widest">
-                <IconPrint className="w-5 h-5" />
-                <span>Print Spooler</span>
+              }} className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-2xl shadow-md transition-all active:scale-95 flex items-center justify-center space-x-3 text-xs uppercase tracking-widest">
+                <span>Quick Print Spooler</span>
               </button>
 
               <button onClick={async () => {
@@ -681,6 +687,16 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices, p
           </table>
       </div>
       
+      {/* Universal Printer Modal */}
+      <PrinterModal
+        isOpen={showPrinterModal}
+        onClose={() => setShowPrinterModal(false)}
+        sale={lastSavedSale}
+        elementId="print-engine"
+        title={lastSavedSale ? `Invoice ${lastSavedSale.invoiceNumber}` : 'Print Document'}
+        template={template}
+      />
+
       <style dangerouslySetInnerHTML={{ __html: `
         .no-scrollbar::-webkit-scrollbar { display: none; }
       `}} />
