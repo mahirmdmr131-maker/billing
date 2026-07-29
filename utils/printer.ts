@@ -132,23 +132,78 @@ export const printElement = (elementId: string | HTMLElement, title = 'Invoice')
 /**
  * Format Sale into raw text for Bluetooth thermal printers or sharing
  */
-export const formatSaleAsText = (sale: Sale, template?: any): string => {
-  const storeName = template?.businessName || 'A M FOOD PROCESSING';
-  const header = `================================\n        ${storeName}\n================================\n`;
-  const invInfo = `Inv #: ${sale.invoiceNumber}\nDate : ${sale.date}\nCust : ${sale.customerName}\nContact: ${sale.customerContact || 'N/A'}\n--------------------------------\n`;
+export const formatSaleAsText = (sale: Sale, template?: any, business?: any): string => {
+  const storeName = business?.name || template?.businessName || 'A M FOOD PROCESSING';
+  let header = `================================\n        ${storeName}\n`;
+  if (business?.tagline) {
+    header += `   ${business.tagline}\n`;
+  }
+  if (business?.address) {
+    header += `${business.address}\n`;
+  }
+  if (business?.phone) {
+    header += `Ph: ${business.phone}\n`;
+  }
+  if (business?.gst) {
+    header += `GSTIN: ${business.gst}\n`;
+  }
+  header += `================================\n`;
 
-  let itemsText = 'ITEM             QTY   RATE   TOTAL\n--------------------------------\n';
+  let invInfo = `Inv #: ${sale.invoiceNumber}\nDate : ${sale.date}\nCust : ${sale.customerName}\nContact: ${sale.customerContact || 'N/A'}\n`;
+
+  if (template?.customFields && Array.isArray(template.customFields) && template.customFields.length > 0) {
+    template.customFields.forEach((cf: any) => {
+      if (cf.label && cf.value) {
+        let val = cf.value
+          .replace(/\{\{inv_number\}\}/g, sale.invoiceNumber)
+          .replace(/\{\{date\}\}/g, sale.date)
+          .replace(/\{\{customer_name\}\}/g, sale.customerName)
+          .replace(/\{\{total_amount\}\}/g, `₹${sale.totalAmount}`)
+          .replace(/\{\{payment_method\}\}/g, sale.paymentMethod);
+        invInfo += `${cf.label}: ${val}\n`;
+      }
+    });
+  }
+  invInfo += `--------------------------------\n`;
+
+  const showRate = template?.showRatePerUnit !== false;
+  let itemsText = showRate
+    ? 'ITEM             QTY   RATE   TOTAL\n--------------------------------\n'
+    : 'ITEM             QTY          TOTAL\n--------------------------------\n';
+
   sale.items.forEach(item => {
-    const name = item.productName.padEnd(14).substring(0, 14);
+    let name = item.productName;
+    if (template?.showSKU && item.id) {
+      name = `[${item.id.slice(0, 4)}] ${name}`;
+    }
+    name = name.padEnd(14).substring(0, 14);
     const qty = `${item.quantity}${item.unit || ''}`.padStart(5);
-    const rate = `₹${item.rate}`.padStart(6);
     const total = `₹${item.total}`.padStart(7);
-    itemsText += `${name} ${qty} ${rate} ${total}\n`;
+
+    if (showRate) {
+      const rate = `₹${item.rate}`.padStart(6);
+      itemsText += `${name} ${qty} ${rate} ${total}\n`;
+    } else {
+      itemsText += `${name} ${qty}        ${total}\n`;
+    }
   });
 
   const divider = '--------------------------------\n';
-  const totalLine = `GRAND TOTAL:           ₹${sale.totalAmount.toLocaleString()}\nPay Mode: ${sale.paymentMethod}\n================================\n`;
-  const footer = template?.footerText ? `${template.footerText}\n` : 'Thank you for your business!\n';
+  let totalLine = `GRAND TOTAL:           ₹${sale.totalAmount.toLocaleString()}\nPay Mode: ${sale.paymentMethod}\n`;
+  if (sale.createdBy) {
+    totalLine += `Billed By: ${sale.createdBy}\n`;
+  }
+  totalLine += `================================\n`;
+
+  let footer = '';
+  if (template?.termsText) {
+    footer += `Terms: ${template.termsText}\n`;
+  }
+  if (template?.footerText) {
+    footer += `${template.footerText}\n`;
+  } else {
+    footer += 'Thank you for your business!\n';
+  }
 
   return header + invInfo + itemsText + divider + totalLine + footer;
 };
@@ -157,7 +212,7 @@ export const formatSaleAsText = (sale: Sale, template?: any): string => {
  * Web Bluetooth ESC/POS Direct Thermal Printing
  * Supports 58mm / 80mm Bluetooth Thermal Printers on Android phones
  */
-export const printViaBluetoothThermal = async (sale: Sale, template?: any): Promise<{ success: boolean; message: string }> => {
+export const printViaBluetoothThermal = async (sale: Sale, template?: any, business?: any): Promise<{ success: boolean; message: string }> => {
   const nav = navigator as any;
   if (!nav.bluetooth) {
     return {
@@ -215,7 +270,7 @@ export const printViaBluetoothThermal = async (sale: Sale, template?: any): Prom
     const boldOffCmd = new Uint8Array([0x1B, 0x45, 0x00]); // Bold Off
     const cutCmd = new Uint8Array([0x1D, 0x56, 0x41, 0x00]); // Paper Cut
 
-    const textContent = formatSaleAsText(sale, template);
+    const textContent = formatSaleAsText(sale, template, business);
     const textBytes = encoder.encode(textContent + '\n\n\n');
 
     // Send payload in chunks
@@ -249,8 +304,8 @@ export const printViaBluetoothThermal = async (sale: Sale, template?: any): Prom
 /**
  * Share or Save Invoice PDF/HTML/Text (opens Android native share options)
  */
-export const shareOrSaveInvoice = async (sale: Sale, template?: any) => {
-  const textContent = formatSaleAsText(sale, template);
+export const shareOrSaveInvoice = async (sale: Sale, template?: any, business?: any) => {
+  const textContent = formatSaleAsText(sale, template, business);
   const element = document.getElementById('print-engine');
   const htmlContent = element ? element.outerHTML : `<pre>${textContent}</pre>`;
 

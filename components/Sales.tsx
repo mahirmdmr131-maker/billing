@@ -1,8 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { AppData, Sale, SaleItem, PaymentMethod, Customer, Product } from '../types';
 import { IconAdd, IconPrint } from './Icons';
-import { printElement, printViaBluetoothThermal, shareOrSaveInvoice } from '../utils/printer';
-import { PrinterModal } from './PrinterModal';
+import { printElement, printViaBluetoothThermal, shareOrSaveInvoice, formatSaleAsText } from '../utils/printer';
 
 interface SalesProps {
   data: AppData;
@@ -36,7 +35,41 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices, p
   const [lastSavedSale, setLastSavedSale] = useState<Sale | null>(null);
   const [printSize, setPrintSize] = useState<PrintSize>('Thermal80');
   const [btStatus, setBtStatus] = useState<string | null>(null);
-  const [showPrinterModal, setShowPrinterModal] = useState(false);
+
+  const handleDirectSpoolerPrint = async () => {
+    if (!lastSavedSale) return;
+    const driver = localStorage.getItem('am_default_printer_driver') || 'system';
+    if (driver === 'bluetooth') {
+      setBtStatus('Connecting to Bluetooth Thermal Printer...');
+      const res = await printViaBluetoothThermal(lastSavedSale, template, data.business);
+      setBtStatus(res.message);
+      setTimeout(() => setBtStatus(null), 5000);
+    } else if (driver === 'network') {
+      const ip = localStorage.getItem('am_wifi_printer_ip') || '192.168.1.200';
+      const port = localStorage.getItem('am_wifi_printer_port') || '9100';
+      const rawText = formatSaleAsText(lastSavedSale, template, data.business);
+      setBtStatus(`Sending to Network Printer ${ip}:${port}...`);
+      try {
+        const res = await fetch(`http://${ip}:${port}/print`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain' },
+          body: rawText,
+          signal: AbortSignal.timeout(3000)
+        }).catch(() => null);
+        if (res && res.ok) {
+          setBtStatus('Sent to Network WiFi Printer!');
+        } else {
+          setBtStatus('WiFi Printer unreachable, falling back to System Print...');
+          printElement('print-engine', `Invoice ${lastSavedSale.invoiceNumber}`);
+        }
+      } catch (e: any) {
+        printElement('print-engine', `Invoice ${lastSavedSale.invoiceNumber}`);
+      }
+      setTimeout(() => setBtStatus(null), 5000);
+    } else {
+      printElement('print-engine', `Invoice ${lastSavedSale.invoiceNumber}`);
+    }
+  };
   
   const customerInputRef = useRef<HTMLInputElement>(null);
 
@@ -442,15 +475,15 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices, p
               </section>
             </div>
             <div className="mt-6 md:mt-auto pt-6 md:pt-8 border-t border-slate-800 space-y-3">
-              <button onClick={() => setShowPrinterModal(true)} className="w-full py-4 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-black rounded-2xl shadow-xl transition-all active:scale-95 flex items-center justify-center space-x-2 text-xs uppercase tracking-widest ring-2 ring-indigo-400/50">
+              <button onClick={handleDirectSpoolerPrint} className="w-full py-4 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-black rounded-2xl shadow-xl transition-all active:scale-95 flex items-center justify-center space-x-2 text-xs uppercase tracking-widest ring-2 ring-indigo-400/50">
                 <IconPrint className="w-5 h-5" />
-                <span>🖨️ Universal Print Hub (BT / WiFi / USB / PC)</span>
+                <span>🖨️ Direct Print (Configured Spooler)</span>
               </button>
 
               <button onClick={() => {
                 printElement('print-engine', `Invoice ${lastSavedSale.invoiceNumber}`);
               }} className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-2xl shadow-md transition-all active:scale-95 flex items-center justify-center space-x-3 text-xs uppercase tracking-widest">
-                <span>Quick Print Spooler</span>
+                <span>Quick System Print</span>
               </button>
 
               <button onClick={async () => {
@@ -687,16 +720,6 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices, p
           </table>
       </div>
       
-      {/* Universal Printer Modal */}
-      <PrinterModal
-        isOpen={showPrinterModal}
-        onClose={() => setShowPrinterModal(false)}
-        sale={lastSavedSale}
-        elementId="print-engine"
-        title={lastSavedSale ? `Invoice ${lastSavedSale.invoiceNumber}` : 'Print Document'}
-        template={template}
-      />
-
       <style dangerouslySetInnerHTML={{ __html: `
         .no-scrollbar::-webkit-scrollbar { display: none; }
       `}} />

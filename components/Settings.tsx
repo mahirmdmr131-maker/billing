@@ -6,6 +6,7 @@ import { initOneDriveAuth, uploadToOneDrive } from '../utils/oneDrive';
 import { sendOTP, generateOTP } from '../utils/otp';
 import { P2PNetworkSync } from './P2PNetworkSync';
 import { BiometricAttendance } from './BiometricAttendance';
+import { PrinterSpooler } from './PrinterSpooler';
 
 interface SettingsProps {
   data: AppData;
@@ -19,7 +20,7 @@ type PrintSize = 'A4' | 'Thermal80' | 'Thermal58';
 
 const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onLogout, onSetLocalHandle }) => {
   const isAdmin = data.currentUser?.role === 'admin';
-  const [settingsTab, setSettingsTab] = useState<'app' | 'template' | 'security' | 'sync' | 'biometric'>('app');
+  const [settingsTab, setSettingsTab] = useState<'app' | 'template' | 'security' | 'sync' | 'biometric' | 'printer'>('app');
   const [previewSize, setPreviewSize] = useState<PrintSize>('Thermal80');
   
   // Admin State
@@ -351,9 +352,9 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
 
       <div className="max-w-6xl mx-auto space-y-8 pb-20">
       <div className="flex bg-white p-2 rounded-2xl shadow-sm border border-slate-100 overflow-x-auto no-scrollbar no-print">
-        {(['app', 'template', 'security', 'sync', 'biometric'] as const).map(t => (
+        {(['app', 'template', 'printer', 'security', 'sync', 'biometric'] as const).map(t => (
           <button key={t} onClick={() => setSettingsTab(t)} className={`px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${settingsTab === t ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}>
-            {t === 'security' ? 'Access & Security' : t === 'biometric' ? '📇 Biometric Attendance' : t}
+            {t === 'security' ? 'Access & Security' : t === 'biometric' ? '📇 Biometric Attendance' : t === 'printer' ? '🖨️ Printer Spooler' : t}
           </button>
         ))}
       </div>
@@ -952,6 +953,10 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
            </div>
         </div>
         </div>
+      )}
+
+      {settingsTab === 'printer' && (
+        <PrinterSpooler templateSettings={data.templateSettings} business={data.business} />
       )}
 
       {settingsTab === 'biometric' && (
