@@ -1,5 +1,7 @@
 import { Sale } from '../types';
 import { saveOrDownloadFile } from './fileSaver';
+import html2canvas from 'html2canvas';
+import jsPDF from 'jspdf';
 
 /**
  * Enhanced Printer Utility for Web, Android WebView / Capacitor Apps & Mobile Browsers
@@ -302,29 +304,85 @@ export const printViaBluetoothThermal = async (sale: Sale, template?: any, busin
 };
 
 /**
- * Share or Save Invoice PDF/HTML/Text (opens Android native share options)
+ * Generate PDF and Share via WhatsApp (opens native share or web whatsapp)
  */
-export const shareOrSaveInvoice = async (sale: Sale, template?: any, business?: any) => {
-  const textContent = formatSaleAsText(sale, template, business);
+export const shareOrSaveInvoice = async (sale: Sale, template?: any, business?: any, mode: 'pdf' | 'whatsapp' | 'html' = 'pdf') => {
   const element = document.getElementById('print-engine');
-  const htmlContent = element ? element.outerHTML : `<pre>${textContent}</pre>`;
+  
+  if (mode === 'html' || !element) {
+    const textContent = formatSaleAsText(sale, template, business);
+    const htmlContent = element ? element.outerHTML : `<pre>${textContent}</pre>`;
+    
+    const invoiceHtml = `<!DOCTYPE html>
+  <html>
+  <head>
+    <title>Invoice #${sale.invoiceNumber}</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+      body { font-family: monospace, sans-serif; padding: 20px; background: #fff; color: #000; }
+      @media print { body { padding: 0; } }
+    </style>
+  </head>
+  <body>
+    ${htmlContent}
+    <button onclick="window.print()" style="margin-top:20px; padding:10px 20px; background:#4f46e5; color:#fff; border:none; border-radius:8px; font-weight:bold;">Print Document</button>
+  </body>
+  </html>`;
+    
+    await saveOrDownloadFile(`Invoice_${sale.invoiceNumber}.html`, invoiceHtml, 'text/html');
+    return;
+  }
 
-  const invoiceHtml = `<!DOCTYPE html>
-<html>
-<head>
-  <title>Invoice #${sale.invoiceNumber}</title>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <style>
-    body { font-family: monospace, sans-serif; padding: 20px; background: #fff; color: #000; }
-    @media print { body { padding: 0; } }
-  </style>
-</head>
-<body>
-  ${htmlContent}
-  <button onclick="window.print()" style="margin-top:20px; padding:10px 20px; background:#4f46e5; color:#fff; border:none; border-radius:8px; font-weight:bold;">Print Document</button>
-</body>
-</html>`;
+  // Generate PDF
+  try {
+    const canvas = await html2canvas(element, { scale: 2, useCORS: true });
+    const imgData = canvas.toDataURL('image/png');
+    
+    const pdf = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4'
+    });
 
-  await saveOrDownloadFile(`Invoice_${sale.invoiceNumber}.html`, invoiceHtml, 'text/html');
+    const pdfWidth = pdf.internal.pageSize.getWidth();
+    const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+    
+    pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+    
+    if (mode === 'whatsapp') {
+      const pdfBlob = pdf.output('blob');
+      const file = new File([pdfBlob], `Invoice_${sale.invoiceNumber}.pdf`, { type: 'application/pdf' });
+      
+      const shareData = {
+        title: `Invoice ${sale.invoiceNumber}`,
+        text: `Here is your invoice ${sale.invoiceNumber} from ${business?.name || 'us'} for ₹${sale.totalAmount.toLocaleString()}.\n\nTotal Due: ₹${sale.totalAmount.toLocaleString()}`,
+        files: [file]
+      };
+
+      if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share(shareData);
+        } catch (e) {
+          console.error("Native share failed", e);
+          pdf.save(`Invoice_${sale.invoiceNumber}.pdf`);
+        }
+      } else {
+        // Fallback to WhatsApp Web URL
+        const phone = sale.customerContact ? sale.customerContact.replace(/\D/g, '') : '';
+        const msg = encodeURIComponent(shareData.text);
+        let waUrl = `https://wa.me/${phone}?text=${msg}`;
+        if (!phone) waUrl = `https://api.whatsapp.com/send?text=${msg}`;
+        
+        pdf.save(`Invoice_${sale.invoiceNumber}.pdf`);
+        window.open(waUrl, '_blank');
+      }
+    } else {
+      pdf.save(`Invoice_${sale.invoiceNumber}.pdf`);
+    }
+  } catch (err) {
+    console.error("PDF Generation failed", err);
+    alert("Could not generate PDF. Check console for errors.");
+  }
 };
+

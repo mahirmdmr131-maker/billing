@@ -1,7 +1,7 @@
 
 [package]
 name = "am-food-processing-manager"
-version = "1.0.0"
+version = "10.11.04"
 description = "Tauri Backend for AM Food Manager"
 authors = ["AM Food Processing"]
 edition = "2021"

@@ -6,16 +6,21 @@ import SetupScreen from './components/SetupScreen';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
 import Customers from './components/Customers';
+import { Suppliers } from './components/Suppliers';
 import Products from './components/Products';
+import { Inventory } from './components/Inventory';
+import { Purchases } from './components/Purchases';
+import { Manufacturing } from './components/Manufacturing';
 import Sales from './components/Sales';
 import FutureOrders from './components/FutureOrders'; 
 import Expenses from './components/Expenses';
 import Invoices from './components/Invoices';
 import Reports from './components/Reports';
+import Employees from './components/Employees';
 import Settings from './components/Settings';
 import About from './components/About';
 import AIAssistant from './components/AIAssistant';
-import { IconDashboard, IconCustomers, IconProducts, IconSales, IconFutureOrders, IconExpenses, IconInvoices, IconReports, IconSettings, IconInfo, IconMenu, IconClose, IconEdit, IconStars } from './components/Icons';
+import { IconDashboard, IconCustomers, IconProducts, IconSales, IconFutureOrders, IconExpenses, IconInvoices, IconReports, IconSettings, IconInfo, IconMenu, IconClose, IconEdit, IconSupplier, IconInventory, IconTruck, IconUser } from './components/Icons';
 import { GlobalSearch } from './components/GlobalSearch';
 import { uploadToDrive, hasAccessToken, initGoogleAuth, getBackupInfo } from './utils/googleDrive';
 import { uploadToOneDrive } from './utils/oneDrive';
@@ -363,12 +368,12 @@ const App: React.FC = () => {
     alert('Synchronization complete.');
   };
 
-  const handleUpdateData = (updater: (prev: AppData) => AppData) => {
+  const handleUpdateData = (updater: ((prev: AppData) => AppData) | Partial<AppData>) => {
     setData(prev => {
-      const next = updater(prev);
+      const next = typeof updater === 'function' ? updater(prev) : { ...prev, ...updater };
       
       // Sync pending sales to Firestore for payment link tracking
-      const lastSale = next.sales[next.sales.length - 1];
+      const lastSale = next.sales?.[next.sales.length - 1];
       if (lastSale && lastSale.paymentMethod === 'Pending') {
         syncSaleToFirestore(lastSale);
       }
@@ -435,12 +440,17 @@ const App: React.FC = () => {
     switch (activeTab) {
       case NavigationTab.Dashboard: return <Dashboard data={data} updateData={handleUpdateData} />;
       case NavigationTab.Customers: return <Customers data={data} updateData={handleUpdateData} onNavigateToInvoices={(sale) => { setSelectedInvoicingSale(sale); setActiveTab(NavigationTab.Invoices); }} initialCustomer={selectedCustomer} onClearInitialCustomer={() => setSelectedCustomer(null)} />;
+      case NavigationTab.Suppliers: return <Suppliers data={data} updateData={handleUpdateData} />;
       case NavigationTab.Products: return <Products data={data} updateData={handleUpdateData} initialSearchTerm={selectedProductSearch} />;
+      case NavigationTab.Inventory: return <Inventory data={data} updateData={handleUpdateData} />;
+      case NavigationTab.Purchases: return <Purchases data={data} updateData={handleUpdateData} />;
       case NavigationTab.Sales: return <Sales data={data} updateData={handleUpdateData} onNavigateToInvoices={() => { setSelectedInvoicingSale(null); setActiveTab(NavigationTab.Invoices); }} initialSaleToDuplicate={saleToDuplicate} onClearDuplicate={() => setSaleToDuplicate(null)} />;
       case NavigationTab.FutureOrders: return <FutureOrders data={data} updateData={handleUpdateData} />;
       case NavigationTab.Expenses: return isAdmin ? <Expenses data={data} updateData={handleUpdateData} /> : <AccessRestricted />;
       case NavigationTab.Invoices: return <Invoices data={data} updateData={handleUpdateData} initialSale={selectedInvoicingSale} onResetInitialSale={() => setSelectedInvoicingSale(null)} onDuplicate={(sale) => { setSaleToDuplicate(sale); setActiveTab(NavigationTab.Sales); }} />;
       case NavigationTab.Reports: return isAdmin ? <Reports data={data} /> : <AccessRestricted />;
+      case NavigationTab.Employees: return isAdmin ? <Employees data={data} updateData={handleUpdateData} /> : <AccessRestricted />;
+      case NavigationTab.Manufacturing: return isAdmin ? <Manufacturing data={data} updateData={handleUpdateData} /> : <AccessRestricted />;
       case NavigationTab.AIAssistant: return isAdmin ? <AIAssistant data={data} /> : <AccessRestricted />;
       case NavigationTab.Settings: return <Settings data={data} updateData={handleUpdateData} onManualSync={handleManualSync} onLogout={handleLogout} onSetLocalHandle={setLocalHandle} />;
       case NavigationTab.About: return <About data={data} />;
@@ -464,13 +474,18 @@ const App: React.FC = () => {
         <nav className="flex-1 space-y-2">
           <NavItem active={activeTab === NavigationTab.Dashboard} onClick={() => navigateTo(NavigationTab.Dashboard)} icon={<IconDashboard />} label="Dashboard" />
           <NavItem active={activeTab === NavigationTab.Customers} onClick={() => navigateTo(NavigationTab.Customers)} icon={<IconCustomers />} label="Customers" />
+          <NavItem active={activeTab === NavigationTab.Suppliers} onClick={() => navigateTo(NavigationTab.Suppliers)} icon={<IconSupplier />} label="Suppliers" />
           <NavItem active={activeTab === NavigationTab.Products} onClick={() => navigateTo(NavigationTab.Products)} icon={<IconProducts />} label="Products" />
+          <NavItem active={activeTab === NavigationTab.Inventory} onClick={() => navigateTo(NavigationTab.Inventory)} icon={<IconInventory />} label="Inventory" />
+          {isAdmin && <NavItem active={activeTab === NavigationTab.Manufacturing} onClick={() => navigateTo(NavigationTab.Manufacturing)} icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>} label="Manufacturing" />}
+          <NavItem active={activeTab === NavigationTab.Purchases} onClick={() => navigateTo(NavigationTab.Purchases)} icon={<IconTruck />} label="Purchases" />
           <NavItem active={activeTab === NavigationTab.Sales} onClick={() => navigateTo(NavigationTab.Sales)} icon={<IconSales />} label="Billing" />
           <NavItem active={activeTab === NavigationTab.FutureOrders} onClick={() => navigateTo(NavigationTab.FutureOrders)} icon={<IconFutureOrders />} label="Future Orders" />
           {isAdmin && <NavItem active={activeTab === NavigationTab.Expenses} onClick={() => navigateTo(NavigationTab.Expenses)} icon={<IconExpenses />} label="Expenses" />}
           <NavItem active={activeTab === NavigationTab.Invoices} onClick={() => { setSelectedInvoicingSale(null); navigateTo(NavigationTab.Invoices); }} icon={<IconInvoices />} label="Invoices" />
+          {isAdmin && <NavItem active={activeTab === NavigationTab.Employees} onClick={() => navigateTo(NavigationTab.Employees)} icon={<IconUser className="w-5 h-5" />} label="Employees" />}
           {isAdmin && <NavItem active={activeTab === NavigationTab.Reports} onClick={() => navigateTo(NavigationTab.Reports)} icon={<IconReports />} label="Reports" />}
-          {isAdmin && <NavItem active={activeTab === NavigationTab.AIAssistant} onClick={() => navigateTo(NavigationTab.AIAssistant)} icon={<IconStars />} label="AI Analyst" />}
+          {isAdmin && <NavItem active={activeTab === NavigationTab.AIAssistant} onClick={() => navigateTo(NavigationTab.AIAssistant)} icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" /></svg>} label="AI Analyst" />}
           <div className="pt-4 border-t border-white/10 mt-4">
             <NavItem active={activeTab === NavigationTab.Settings} onClick={() => navigateTo(NavigationTab.Settings)} icon={<IconSettings />} label="Settings" />
             <NavItem active={activeTab === NavigationTab.About} onClick={() => navigateTo(NavigationTab.About)} icon={<IconInfo />} label="About Software" />

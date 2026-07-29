@@ -51,7 +51,7 @@ const About: React.FC<AboutProps> = ({ data }) => {
               <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-200">
                 <div className="text-left">
                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Version</p>
-                  <p className="text-sm font-black text-indigo-600">v2.1.0-PRO</p>
+                  <p className="text-sm font-black text-indigo-600">v10.11.04-PRO</p>
                 </div>
                 <div className="text-right">
                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Build</p>

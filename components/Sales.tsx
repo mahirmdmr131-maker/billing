@@ -2,6 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { AppData, Sale, SaleItem, PaymentMethod, Customer, Product } from '../types';
 import { IconAdd, IconPrint } from './Icons';
 import { printElement, printViaBluetoothThermal, shareOrSaveInvoice, formatSaleAsText } from '../utils/printer';
+import { BarcodeScanner } from './BarcodeScanner';
 
 interface SalesProps {
   data: AppData;
@@ -35,6 +36,7 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices, p
   const [lastSavedSale, setLastSavedSale] = useState<Sale | null>(null);
   const [printSize, setPrintSize] = useState<PrintSize>('Thermal80');
   const [btStatus, setBtStatus] = useState<string | null>(null);
+  const [showScanner, setShowScanner] = useState(false);
 
   const handleDirectSpoolerPrint = async () => {
     if (!lastSavedSale) return;
@@ -204,24 +206,42 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices, p
     return q * r;
   };
 
-  const currentTotal = formData.items.reduce((sum, i) => sum + calculateItemTotal(Number(i.quantity || 0), Number(i.rate || 0), i.unit || 'kg'), 0);
+  const currentTotal = formData.items.reduce((sum, i) => {
+    const baseTotal = calculateItemTotal(Number(i.quantity || 0), Number(i.rate || 0), i.unit || 'kg');
+    const gstPercent = Number(i.gstPercent) || 0;
+    return sum + (baseTotal * (1 + gstPercent / 100));
+  }, 0);
 
   const resetForm = () => {
-    setFormData({ customerId: '', customerName: '', customerContact: '', date: new Date().toISOString().split('T')[0], dueDate: '', paymentMethod: 'Cash', cashPaid: '', tier: 'Retail', items: [{ productName: '', quantity: 1, unit: 'kg', rate: 0 }] });
+    setFormData({ customerId: '', customerName: '', customerContact: '', date: new Date().toISOString().split('T')[0], dueDate: '', paymentMethod: 'Cash', cashPaid: '', tier: 'Retail', items: [{ productName: '', quantity: 1, unit: 'kg', rate: 0, gstPercent: 0 }] });
     setCustomerSearch('');
     setCustomerLazyLimit(50);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const finalItems: SaleItem[] = formData.items.map(item => ({
-      id: crypto.randomUUID(),
-      productName: item.productName || 'Item',
-      quantity: Number(item.quantity) || 0,
-      unit: item.unit || 'kg',
-      rate: Number(item.rate) || 0,
-      total: calculateItemTotal(Number(item.quantity), Number(item.rate), item.unit || 'kg')
-    }));
+    let totalSubTotal = 0;
+    let totalTaxAmount = 0;
+
+    const finalItems: SaleItem[] = formData.items.map(item => {
+      const baseTotal = calculateItemTotal(Number(item.quantity), Number(item.rate), item.unit || 'kg');
+      const gstPercent = Number(item.gstPercent) || 0;
+      const taxAmount = (baseTotal * gstPercent) / 100;
+      
+      totalSubTotal += baseTotal;
+      totalTaxAmount += taxAmount;
+
+      return {
+        id: crypto.randomUUID(),
+        productName: item.productName || 'Item',
+        quantity: Number(item.quantity) || 0,
+        unit: item.unit || 'kg',
+        rate: Number(item.rate) || 0,
+        total: baseTotal + taxAmount,
+        gstPercent,
+        taxAmount
+      };
+    });
 
     const isPending = formData.paymentMethod === 'Pending' || (Number(formData.cashPaid) === 0 && formData.paymentMethod === 'Cash' && formData.cashPaid !== '');
 
@@ -234,7 +254,9 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices, p
       customerName: formData.customerName || customerSearch || 'Walk-in',
       customerContact: formData.customerContact,
       items: finalItems,
-      totalAmount: finalItems.reduce((sum, i) => sum + i.total, 0),
+      subTotal: totalSubTotal,
+      taxAmount: totalTaxAmount,
+      totalAmount: totalSubTotal + totalTaxAmount,
       category: 'General',
       isMistake: false,
       createdBy: data.currentUser?.id || 'System',
@@ -262,7 +284,7 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices, p
   const selectProduct = (p: Product, index: number) => {
     const newItems = [...formData.items];
     const rate = formData.tier === 'Wholesale' ? (p.wholesaleRate || p.defaultRate) : p.defaultRate;
-    newItems[index] = { ...newItems[index], productName: p.name, unit: p.unit, rate };
+    newItems[index] = { ...newItems[index], productName: p.name, unit: p.unit, rate, gstPercent: p.gstPercent || 0 };
     setFormData(prev => ({ ...prev, items: newItems }));
     setActiveProductIdx(null);
     setIsProductForced(false);
@@ -410,19 +432,24 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices, p
                     <div className="col-span-1 md:col-span-1">
                       <input type="number" step="any" required className="w-full px-2 py-1.5 border border-slate-200 rounded-lg font-bold bg-slate-50 text-xs" value={item.quantity} onChange={e => { const it = [...formData.items]; it[index].quantity = Number(e.target.value); setFormData({...formData, items: it}); }} />
                     </div>
-                    <div className="col-span-1 md:col-span-2 md:text-right">
+                    <div className="col-span-1 md:col-span-2 md:text-right flex flex-col justify-center">
                       <input type="number" step="any" required className="w-full px-2 py-1.5 border border-slate-200 rounded-lg font-bold bg-slate-50 text-xs md:text-right" value={item.rate} onChange={e => { const it = [...formData.items]; it[index].rate = Number(e.target.value); setFormData({...formData, items: it}); }} />
+                      {item.gstPercent ? <span className="text-[8px] text-emerald-600 font-bold mt-0.5">GST: {item.gstPercent}%</span> : null}
                     </div>
                   </div>
                   <div className="col-span-1 md:col-span-2 flex items-center justify-end">
                     <div className="text-right">
-                       <p className="font-black text-indigo-600 text-sm">₹{calculateItemTotal(Number(item.quantity), Number(item.rate), item.unit || 'kg').toLocaleString()}</p>
+                       <p className="font-black text-indigo-600 text-sm">₹{((calculateItemTotal(Number(item.quantity), Number(item.rate), item.unit || 'kg')) * (1 + (item.gstPercent || 0) / 100)).toLocaleString()}</p>
                     </div>
                     <button type="button" onClick={() => setFormData({...formData, items: formData.items.filter((_, i) => i !== index)})} className="ml-3 text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity">✕</button>
                   </div>
                 </div>
               ))}
-              <button type="button" onClick={() => setFormData({...formData, items: [...formData.items, {productName: '', quantity: 1, unit: 'kg', rate: 0}]})} className="w-full py-3 border-2 border-dashed border-slate-100 rounded-xl text-[10px] font-black uppercase text-slate-400 hover:border-indigo-200 hover:text-indigo-600 transition-all">+ Add Another Item</button>
+              
+              <div className="flex flex-col md:flex-row gap-4 mt-4">
+                <button type="button" onClick={() => setFormData({...formData, items: [...formData.items, {productName: '', quantity: 1, unit: 'kg', rate: 0, gstPercent: 0}]})} className="flex-1 py-3 border-2 border-dashed border-slate-200 rounded-xl text-[10px] font-black uppercase text-slate-500 hover:border-indigo-300 hover:text-indigo-600 hover:bg-indigo-50 transition-all">+ Add Another Item</button>
+                <button type="button" onClick={() => setShowScanner(true)} className="flex-1 py-3 border-2 border-solid border-slate-800 bg-slate-800 rounded-xl text-[10px] font-black uppercase text-white shadow-md hover:bg-slate-700 transition-all">📷 Scan Barcode</button>
+              </div>
             </div>
 
             <div className="sticky bottom-0 bg-slate-900 text-white p-4 flex flex-col md:flex-row justify-between items-center gap-4 rounded-b-[32px] shadow-[0_-10px_30px_rgba(0,0,0,0.2)] z-[100]">
@@ -444,6 +471,30 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices, p
             </div>
           </form>
         </div>
+      )}
+
+      {showScanner && (
+        <BarcodeScanner 
+          onResult={(code) => {
+            setShowScanner(false);
+            const foundProduct = data.products.find(p => p.code === code || p.id === code.replace('PROD:', ''));
+            if (foundProduct) {
+               const rate = formData.tier === 'Wholesale' ? (foundProduct.wholesaleRate || foundProduct.defaultRate) : foundProduct.defaultRate;
+               // If last item is empty, replace it, else push
+               const currentItems = [...formData.items];
+               const lastItem = currentItems[currentItems.length - 1];
+               if (lastItem && !lastItem.productName && lastItem.rate === 0) {
+                 currentItems[currentItems.length - 1] = { productName: foundProduct.name, quantity: 1, unit: foundProduct.unit, rate };
+               } else {
+                 currentItems.push({ productName: foundProduct.name, quantity: 1, unit: foundProduct.unit, rate });
+               }
+               setFormData({ ...formData, items: currentItems });
+            } else {
+               alert(`Product with barcode ${code} not found in catalog.`);
+            }
+          }} 
+          onClose={() => setShowScanner(false)} 
+        />
       )}
 
       {lastSavedSale && (
@@ -496,9 +547,15 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices, p
               </button>
 
               <button onClick={() => {
-                shareOrSaveInvoice(lastSavedSale, template);
+                shareOrSaveInvoice(lastSavedSale, template, data.business, 'whatsapp');
               }} className="w-full py-4 bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-emerald-500/30 font-black rounded-2xl shadow-md transition-all active:scale-95 flex items-center justify-center space-x-2 text-[10px] uppercase tracking-widest">
-                <span>📄 Share / Save Invoice</span>
+                <span>💬 WhatsApp PDF</span>
+              </button>
+              
+              <button onClick={() => {
+                shareOrSaveInvoice(lastSavedSale, template, data.business, 'pdf');
+              }} className="w-full py-4 bg-slate-800 hover:bg-slate-700 text-indigo-400 border border-indigo-500/30 font-black rounded-2xl shadow-md transition-all active:scale-95 flex items-center justify-center space-x-2 text-[10px] uppercase tracking-widest">
+                <span>📄 Download PDF</span>
               </button>
 
               <button onClick={() => { setLastSavedSale(null); resetForm(); setShowAddForm(true); }} className="w-full py-4 bg-emerald-600 text-white font-black rounded-2xl text-[10px] uppercase tracking-widest shadow-lg hover:bg-emerald-700 transition-all active:scale-95 flex items-center justify-center space-x-2">
@@ -587,6 +644,12 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices, p
 
               <div className="flex flex-col items-end pt-3" style={{ borderTop: `2px solid ${template.applyToPrinting ? template.brandColor : '#000'}` }}>
                   <div className="w-full md:w-2/3 space-y-1.5">
+                    {lastSavedSale.taxAmount ? (
+                      <>
+                        <div className="flex justify-between font-bold uppercase" style={{ fontSize: '0.8em' }}><span className="opacity-50">SubTotal</span><span>₹{(lastSavedSale.subTotal || 0).toLocaleString()}</span></div>
+                        <div className="flex justify-between font-bold uppercase" style={{ fontSize: '0.8em' }}><span className="opacity-50">GST</span><span>₹{lastSavedSale.taxAmount.toLocaleString()}</span></div>
+                      </>
+                    ) : null}
                     <div className="flex justify-between font-black uppercase" style={{ fontSize: '1.2em' }}><span className="opacity-50">Total Amount</span><span>₹{lastSavedSale.totalAmount.toLocaleString()}</span></div>
                   </div>
                   <p className="uppercase font-black opacity-40 mt-4" style={{ fontSize: '0.45em' }}>Pay Mode: {lastSavedSale.paymentMethod} | {currentTime}</p>

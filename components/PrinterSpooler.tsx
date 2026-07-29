@@ -577,6 +577,18 @@ export const PrinterSpooler: React.FC<PrinterSpoolerProps> = ({ templateSettings
 
                   {/* Total Summary */}
                   <div className="border-t-2 pt-2 mb-4 space-y-1 text-[0.8em]" style={{ borderColor: brandColor }}>
+                    {sampleSale.taxAmount ? (
+                      <>
+                        <div className="flex justify-between font-bold text-gray-600 text-[0.85em]">
+                          <span>SubTotal:</span>
+                          <span>₹{(sampleSale.subTotal || 0).toLocaleString()}</span>
+                        </div>
+                        <div className="flex justify-between font-bold text-gray-600 text-[0.85em]">
+                          <span>GST Amount:</span>
+                          <span>₹{sampleSale.taxAmount.toLocaleString()}</span>
+                        </div>
+                      </>
+                    ) : null}
                     <div className="flex justify-between font-black text-sm">
                       <span>GRAND TOTAL:</span>
                       <span style={{ color: brandColor }}>₹{sampleSale.totalAmount.toLocaleString()}</span>

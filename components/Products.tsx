@@ -1,7 +1,9 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { AppData, Product, PriceHistoryEntry } from '../types';
-import { IconAdd, IconProducts } from './Icons';
+import { IconAdd, IconProducts, IconPrint } from './Icons';
+import Barcode from 'react-barcode';
+import { QRCodeSVG } from 'qrcode.react';
 
 interface ProductsProps {
   data: AppData;
@@ -23,6 +25,7 @@ const Products: React.FC<ProductsProps> = ({ data, updateData, initialSearchTerm
   const [searchTerm, setSearchTerm] = useState(initialSearchTerm || '');
   const [viewingHistoryId, setViewingHistoryId] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [printBarcodeProduct, setPrintBarcodeProduct] = useState<Product | null>(null);
 
   const productToDelete = useMemo(() => 
     deleteConfirmId ? data.products.find(p => p.id === deleteConfirmId) : null
@@ -39,14 +42,17 @@ const Products: React.FC<ProductsProps> = ({ data, updateData, initialSearchTerm
     wholesaleRate: '',
     currentStock: '',
     minThreshold: '',
-    rateDate: new Date().toISOString().split('T')[0]
+    rateDate: new Date().toISOString().split('T')[0],
+    code: '',
+    hsnCode: '',
+    gstPercent: ''
   });
 
   const isAdmin = data.currentUser?.role === 'admin';
   const UNITS = ['kg', 'gram', 'no.', 'pkt', 'box', 'ltr', 'ml', 'bag', 'tin'];
 
   const filteredProducts = useMemo(() => {
-    return data.products.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()));
+    return data.products.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()) || (p.code && p.code.toLowerCase().includes(searchTerm.toLowerCase())));
   }, [data.products, searchTerm]);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -71,11 +77,14 @@ const Products: React.FC<ProductsProps> = ({ data, updateData, initialSearchTerm
             return {
               ...p,
               name: formData.name,
+              code: formData.code,
               unit: formData.unit,
               defaultRate: newRate,
               wholesaleRate: newWholesale,
               currentStock: formData.currentStock === '' ? undefined : Number(formData.currentStock),
               minThreshold: formData.minThreshold === '' ? undefined : Number(formData.minThreshold),
+              hsnCode: formData.hsnCode,
+              gstPercent: formData.gstPercent === '' ? undefined : Number(formData.gstPercent),
               priceHistory: history
             };
           }
@@ -85,12 +94,16 @@ const Products: React.FC<ProductsProps> = ({ data, updateData, initialSearchTerm
         const newProduct: Product = {
           id: crypto.randomUUID(),
           name: formData.name,
+          code: formData.code,
           unit: formData.unit,
           defaultRate: newRate,
           wholesaleRate: newWholesale,
           currentStock: formData.currentStock === '' ? undefined : Number(formData.currentStock),
           minThreshold: formData.minThreshold === '' ? undefined : Number(formData.minThreshold),
-          priceHistory: [{ rate: newRate, date: rateDate }]
+          hsnCode: formData.hsnCode,
+          gstPercent: formData.gstPercent === '' ? undefined : Number(formData.gstPercent),
+          priceHistory: [{ rate: newRate, date: rateDate }],
+          productType: 'FinishedGood'
         };
         updatedProducts = [newProduct, ...prev.products];
       }
@@ -103,12 +116,15 @@ const Products: React.FC<ProductsProps> = ({ data, updateData, initialSearchTerm
     setEditingProduct(product);
     setFormData({
       name: product.name,
+      code: product.code || '',
       unit: product.unit,
       defaultRate: product.defaultRate.toString(),
       wholesaleRate: product.wholesaleRate?.toString() || '',
       currentStock: product.currentStock?.toString() || '',
       minThreshold: product.minThreshold?.toString() || '',
-      rateDate: new Date().toISOString().split('T')[0]
+      rateDate: new Date().toISOString().split('T')[0],
+      hsnCode: product.hsnCode || '',
+      gstPercent: product.gstPercent?.toString() || ''
     });
     setShowForm(true);
   };
@@ -116,13 +132,11 @@ const Products: React.FC<ProductsProps> = ({ data, updateData, initialSearchTerm
   const closeForm = () => {
     setShowForm(false);
     setEditingProduct(null);
-    setFormData({ name: '', unit: 'kg', defaultRate: '', wholesaleRate: '', currentStock: '', minThreshold: '', rateDate: new Date().toISOString().split('T')[0] });
+    setFormData({ name: '', code: '', unit: 'kg', defaultRate: '', wholesaleRate: '', currentStock: '', minThreshold: '', rateDate: new Date().toISOString().split('T')[0], hsnCode: '', gstPercent: '' });
   };
 
   const deleteProduct = (id: string) => {
     if (!isAdmin) {
-      // Using a simple alert for now as it's a permission check, 
-      // but the main request was for the deletion confirmation.
       alert("Only admins can remove products from the catalog.");
       return;
     }
@@ -148,7 +162,7 @@ const Products: React.FC<ProductsProps> = ({ data, updateData, initialSearchTerm
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="relative flex-1 max-w-md">
            <svg className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-           <input type="text" placeholder="Search product catalog..." className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-medium shadow-sm" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+           <input type="text" placeholder="Search product catalog or SKU..." className="w-full pl-10 pr-4 py-3 bg-white border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-medium shadow-sm" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
         </div>
         <button onClick={() => setShowForm(true)} className="flex items-center justify-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-2xl font-bold shadow-lg transition-all active:scale-95">
           <IconAdd /><span>Add Product</span>
@@ -166,6 +180,13 @@ const Products: React.FC<ProductsProps> = ({ data, updateData, initialSearchTerm
                   <IconProducts className="w-8 h-8" />
                 </div>
                 <div className="flex space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button 
+                    onClick={() => setPrintBarcodeProduct(product)} 
+                    className="p-2 text-slate-400 hover:text-indigo-600 bg-slate-50 rounded-xl"
+                    title="Print Barcode"
+                  >
+                    <IconPrint className="w-5 h-5" />
+                  </button>
                   <button 
                     onClick={() => setViewingHistoryId(viewingHistoryId === product.id ? null : product.id)} 
                     className={`p-2 rounded-xl transition-all ${viewingHistoryId === product.id ? 'bg-indigo-600 text-white' : 'bg-slate-50 text-slate-400 hover:text-indigo-600'}`}
@@ -240,9 +261,15 @@ const Products: React.FC<ProductsProps> = ({ data, updateData, initialSearchTerm
             </div>
             <form onSubmit={handleSubmit} className="p-8 space-y-4">
               <div className="space-y-4">
-                <div>
-                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Product Name *</label>
-                  <input type="text" required value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} className="w-full px-4 py-3 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none font-bold uppercase" placeholder="e.g. PREMIUM BASMATI" />
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Product Name *</label>
+                    <input type="text" required value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} className="w-full px-4 py-3 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none font-bold uppercase" placeholder="e.g. PREMIUM BASMATI" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Barcode / SKU</label>
+                    <input type="text" value={formData.code} onChange={e => setFormData({ ...formData, code: e.target.value })} className="w-full px-4 py-3 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none font-bold uppercase" placeholder="Scan or type..." />
+                  </div>
                 </div>
                 <div className="grid grid-cols-3 gap-4">
                     <div>
@@ -274,12 +301,63 @@ const Products: React.FC<ProductsProps> = ({ data, updateData, initialSearchTerm
                       <input type="number" placeholder="Alert at..." value={formData.minThreshold} onChange={e => setFormData({ ...formData, minThreshold: e.target.value })} className="w-full px-4 py-3 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none font-bold uppercase" />
                     </div>
                 </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">HSN Code</label>
+                    <input type="text" value={formData.hsnCode} onChange={e => setFormData({ ...formData, hsnCode: e.target.value })} className="w-full px-4 py-3 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none font-bold uppercase" placeholder="e.g. 1006" />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">GST %</label>
+                    <input type="number" step="any" value={formData.gstPercent} onChange={e => setFormData({ ...formData, gstPercent: e.target.value })} className="w-full px-4 py-3 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none font-bold uppercase" placeholder="e.g. 5" />
+                  </div>
+                </div>
               </div>
               <div className="flex gap-4 pt-6">
                 <button type="button" onClick={closeForm} className="flex-1 px-6 py-4 border border-slate-200 text-slate-500 font-black rounded-2xl uppercase text-[10px] tracking-widest hover:bg-slate-50">Discard</button>
                 <button type="submit" className="flex-1 px-6 py-4 bg-indigo-600 text-white font-black rounded-2xl shadow-xl uppercase text-[10px] tracking-widest hover:bg-indigo-700">Save Product</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {printBarcodeProduct && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-md animate-in fade-in duration-300">
+          <div className="bg-white w-full max-w-md rounded-[32px] shadow-2xl overflow-hidden border border-slate-200 p-8 flex flex-col items-center">
+            <h3 className="text-xl font-bold mb-6">Print Label</h3>
+            
+            <div className="bg-white p-4 border-2 border-dashed border-slate-300 rounded-xl mb-6 flex flex-col items-center space-y-4 w-full" id="barcode-print-area">
+              <h4 className="font-bold text-lg">{printBarcodeProduct.name}</h4>
+              <p className="text-xl font-black text-indigo-600">₹{printBarcodeProduct.defaultRate}</p>
+              
+              {printBarcodeProduct.code ? (
+                <Barcode value={printBarcodeProduct.code} width={2} height={60} fontSize={14} />
+              ) : (
+                <QRCodeSVG value={`PROD:${printBarcodeProduct.id}`} size={120} />
+              )}
+            </div>
+
+            <div className="flex gap-4 w-full">
+              <button 
+                onClick={() => setPrintBarcodeProduct(null)} 
+                className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-all"
+              >
+                Close
+              </button>
+              <button 
+                onClick={() => {
+                  const printContent = document.getElementById('barcode-print-area')?.innerHTML;
+                  const originalContent = document.body.innerHTML;
+                  document.body.innerHTML = `<div style="display: flex; justify-content: center; align-items: center; height: 100vh;">${printContent}</div>`;
+                  window.print();
+                  document.body.innerHTML = originalContent;
+                  window.location.reload();
+                }} 
+                className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg transition-all"
+              >
+                Print Label
+              </button>
+            </div>
           </div>
         </div>
       )}

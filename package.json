@@ -1,7 +1,7 @@
 {
   "name": "am-food-processing-manager",
   "private": true,
-  "version": "1.0.0",
+  "version": "10.11.04",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -24,7 +24,12 @@
     "@types/express": "^5.0.6",
     "express": "^5.2.1",
     "firebase": "^12.11.0",
+    "html2canvas": "^1.4.1",
+    "html5-qrcode": "^2.3.8",
+    "jspdf": "^4.2.1",
+    "qrcode.react": "^4.2.0",
     "react": "^19.0.0",
+    "react-barcode": "^1.6.1",
     "react-dom": "^19.0.0",
     "recharts": "^2.15.0",
     "tsx": "^4.21.0",

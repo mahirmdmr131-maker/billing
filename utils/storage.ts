@@ -67,9 +67,14 @@ const DEFAULT_DATA: AppData = {
 
 export const getHandleDB = (): Promise<IDBDatabase> => {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(HANDLE_DB_NAME, 1);
+    const request = indexedDB.open(HANDLE_DB_NAME, 2);
     request.onupgradeneeded = () => {
-      request.result.createObjectStore(HANDLE_STORE_NAME);
+      if (!request.result.objectStoreNames.contains(HANDLE_STORE_NAME)) {
+        request.result.createObjectStore(HANDLE_STORE_NAME);
+      }
+      if (!request.result.objectStoreNames.contains('app_data_store')) {
+        request.result.createObjectStore('app_data_store');
+      }
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
@@ -100,14 +105,25 @@ export const clearDirectoryHandle = async (key: string = 'backup-folder'): Promi
   tx.objectStore(HANDLE_STORE_NAME).delete(key);
 };
 
-export const loadData = (): AppData => {
-  const stored = localStorage.getItem(STORAGE_KEY);
-  if (!stored) return DEFAULT_DATA;
+// Now async to support IndexedDB
+export const loadDataAsync = async (): Promise<AppData> => {
   try {
+    const db = await getHandleDB();
+    const tx = db.transaction('app_data_store', 'readonly');
+    const request = tx.objectStore('app_data_store').get(STORAGE_KEY);
+    
+    const stored = await new Promise<string | null>((resolve) => {
+      request.onsuccess = () => resolve(request.result || localStorage.getItem(STORAGE_KEY));
+      request.onerror = () => resolve(localStorage.getItem(STORAGE_KEY));
+    });
+
+    if (!stored) return DEFAULT_DATA;
+
     const data = JSON.parse(stored);
+    
+    // Polyfill missing structural arrays
     if (!data.templateSettings) data.templateSettings = DEFAULT_TEMPLATE;
     else {
-      // Ensure new template settings are initialized if they don't exist
       if (data.templateSettings.applyToPrinting === undefined) data.templateSettings.applyToPrinting = true;
       if (data.templateSettings.fontSize === undefined) data.templateSettings.fontSize = 12;
       if (data.templateSettings.lineSpacing === undefined) data.templateSettings.lineSpacing = 1.2;
@@ -118,6 +134,8 @@ export const loadData = (): AppData => {
     }
     if (!data.users) data.users = [];
     if (!data.customers) data.customers = [];
+    if (!data.suppliers) data.suppliers = [];
+    if (!data.purchases) data.purchases = [];
     if (!data.products) data.products = [];
     if (!data.upiQrs) data.upiQrs = [];
     if (!data.sales) data.sales = [];
@@ -156,11 +174,36 @@ export const loadData = (): AppData => {
   }
 };
 
-export const saveData = (data: AppData): void => {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+// Backwards compatibility for synchronous initial render if needed
+export const loadData = (): AppData => {
+  const stored = localStorage.getItem(STORAGE_KEY);
+  if (!stored) return DEFAULT_DATA;
+  try {
+    return JSON.parse(stored);
+  } catch {
+    return DEFAULT_DATA;
+  }
+};
+
+export const saveData = async (data: AppData): Promise<void> => {
+  const jsonStr = JSON.stringify(data);
+  // Save to both for fallback during transition
+  localStorage.setItem(STORAGE_KEY, jsonStr);
+  
+  try {
+    const db = await getHandleDB();
+    const tx = db.transaction('app_data_store', 'readwrite');
+    tx.objectStore('app_data_store').put(jsonStr, STORAGE_KEY);
+  } catch (e) {
+    console.warn('Failed to save to IndexedDB', e);
+  }
 };
 
 export const resetData = (): void => {
   localStorage.removeItem(STORAGE_KEY);
-  window.location.reload();
+  getHandleDB().then(db => {
+    const tx = db.transaction('app_data_store', 'readwrite');
+    tx.objectStore('app_data_store').delete(STORAGE_KEY);
+    tx.oncomplete = () => window.location.reload();
+  }).catch(() => window.location.reload());
 };
