@@ -4,6 +4,7 @@ import { AppData, Product, PriceHistoryEntry } from '../types';
 import { IconAdd, IconProducts, IconPrint } from './Icons';
 import Barcode from 'react-barcode';
 import { QRCodeSVG } from 'qrcode.react';
+import { generateProductCodes, isBarcodeUnique, generateUniqueBarcodeNumber } from '../utils/codeGenerator';
 
 interface ProductsProps {
   data: AppData;
@@ -45,21 +46,58 @@ const Products: React.FC<ProductsProps> = ({ data, updateData, initialSearchTerm
     rateDate: new Date().toISOString().split('T')[0],
     code: '',
     hsnCode: '',
-    gstPercent: ''
+    gstPercent: '',
+    barcodeNumber: '',
+    barcodeType: 'Code 128'
   });
+  const [formBarcodeError, setFormBarcodeError] = useState<string | null>(null);
 
   const isAdmin = data.currentUser?.role === 'admin';
   const UNITS = ['kg', 'gram', 'no.', 'pkt', 'box', 'ltr', 'ml', 'bag', 'tin'];
 
   const filteredProducts = useMemo(() => {
-    return data.products.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()) || (p.code && p.code.toLowerCase().includes(searchTerm.toLowerCase())));
+    const q = searchTerm.toLowerCase();
+    return data.products.filter(p =>
+      p.name.toLowerCase().includes(q) ||
+      (p.code && p.code.toLowerCase().includes(q)) ||
+      (p.barcodeNumber && p.barcodeNumber.toLowerCase().includes(q))
+    );
   }, [data.products, searchTerm]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleAutoGenerateBarcode = () => {
+    const uniqueNum = generateUniqueBarcodeNumber(data.products, formData.barcodeType);
+    setFormData(prev => ({ ...prev, barcodeNumber: uniqueNum }));
+    setFormBarcodeError(null);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setFormBarcodeError(null);
+
+    const currentId = editingProduct ? editingProduct.id : crypto.randomUUID();
+
+    if (formData.barcodeNumber.trim()) {
+      if (!isBarcodeUnique(formData.barcodeNumber, data.products, currentId)) {
+        setFormBarcodeError("This barcode number is already assigned to another product!");
+        return;
+      }
+    }
+
     const newRate = Number(formData.defaultRate) || 0;
     const newWholesale = Number(formData.wholesaleRate) || 0;
     const rateDate = formData.rateDate || new Date().toISOString().split('T')[0];
+
+    const productForCode = {
+      id: currentId,
+      name: formData.name,
+      code: formData.code,
+      defaultRate: newRate,
+      unit: formData.unit,
+      barcodeNumber: formData.barcodeNumber.trim(),
+      barcodeType: formData.barcodeType
+    } as Product;
+    
+    const { barcodeNumber, barcodeType, barcodeData, qrCodeData } = await generateProductCodes(productForCode, data.products);
 
     updateData(prev => {
       let updatedProducts;
@@ -85,14 +123,19 @@ const Products: React.FC<ProductsProps> = ({ data, updateData, initialSearchTerm
               minThreshold: formData.minThreshold === '' ? undefined : Number(formData.minThreshold),
               hsnCode: formData.hsnCode,
               gstPercent: formData.gstPercent === '' ? undefined : Number(formData.gstPercent),
-              priceHistory: history
+              priceHistory: history,
+              barcodeNumber,
+              barcodeType,
+              barcodeData,
+              qrCodeData,
+              updatedAt: new Date().toISOString()
             };
           }
           return p;
         });
       } else {
         const newProduct: Product = {
-          id: crypto.randomUUID(),
+          id: productForCode.id,
           name: formData.name,
           code: formData.code,
           unit: formData.unit,
@@ -103,7 +146,13 @@ const Products: React.FC<ProductsProps> = ({ data, updateData, initialSearchTerm
           hsnCode: formData.hsnCode,
           gstPercent: formData.gstPercent === '' ? undefined : Number(formData.gstPercent),
           priceHistory: [{ rate: newRate, date: rateDate }],
-          productType: 'FinishedGood'
+          productType: 'FinishedGood',
+          barcodeNumber,
+          barcodeType,
+          barcodeData,
+          qrCodeData,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
         };
         updatedProducts = [newProduct, ...prev.products];
       }
@@ -124,15 +173,19 @@ const Products: React.FC<ProductsProps> = ({ data, updateData, initialSearchTerm
       minThreshold: product.minThreshold?.toString() || '',
       rateDate: new Date().toISOString().split('T')[0],
       hsnCode: product.hsnCode || '',
-      gstPercent: product.gstPercent?.toString() || ''
+      gstPercent: product.gstPercent?.toString() || '',
+      barcodeNumber: product.barcodeNumber || '',
+      barcodeType: product.barcodeType || 'Code 128'
     });
+    setFormBarcodeError(null);
     setShowForm(true);
   };
 
   const closeForm = () => {
     setShowForm(false);
     setEditingProduct(null);
-    setFormData({ name: '', code: '', unit: 'kg', defaultRate: '', wholesaleRate: '', currentStock: '', minThreshold: '', rateDate: new Date().toISOString().split('T')[0], hsnCode: '', gstPercent: '' });
+    setFormBarcodeError(null);
+    setFormData({ name: '', code: '', unit: 'kg', defaultRate: '', wholesaleRate: '', currentStock: '', minThreshold: '', rateDate: new Date().toISOString().split('T')[0], hsnCode: '', gstPercent: '', barcodeNumber: '', barcodeType: 'Code 128' });
   };
 
   const deleteProduct = (id: string) => {
@@ -259,7 +312,12 @@ const Products: React.FC<ProductsProps> = ({ data, updateData, initialSearchTerm
               </div>
               <button onClick={closeForm} className="p-2 hover:bg-white/10 rounded-full transition-colors"><svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg></button>
             </div>
-            <form onSubmit={handleSubmit} className="p-8 space-y-4">
+            <form onSubmit={handleSubmit} className="p-8 space-y-4 max-h-[85vh] overflow-y-auto">
+              {formBarcodeError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-600 rounded-2xl text-xs font-bold">
+                  {formBarcodeError}
+                </div>
+              )}
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -267,8 +325,48 @@ const Products: React.FC<ProductsProps> = ({ data, updateData, initialSearchTerm
                     <input type="text" required value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} className="w-full px-4 py-3 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none font-bold uppercase" placeholder="e.g. PREMIUM BASMATI" />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Barcode / SKU</label>
-                    <input type="text" value={formData.code} onChange={e => setFormData({ ...formData, code: e.target.value })} className="w-full px-4 py-3 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none font-bold uppercase" placeholder="Scan or type..." />
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">SKU / Code</label>
+                    <input type="text" value={formData.code} onChange={e => setFormData({ ...formData, code: e.target.value })} className="w-full px-4 py-3 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-indigo-500 outline-none font-bold uppercase" placeholder="SKU-1001" />
+                  </div>
+                </div>
+
+                <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-3">
+                  <div className="flex justify-between items-center">
+                    <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest">
+                      Barcode & QR Code Settings
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleAutoGenerateBarcode}
+                      className="text-[10px] font-black text-indigo-600 hover:underline uppercase tracking-wider"
+                    >
+                      + Auto-Generate Unique
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[9px] font-bold text-slate-400 uppercase mb-1">Barcode Format</label>
+                      <select
+                        value={formData.barcodeType}
+                        onChange={e => setFormData({ ...formData, barcodeType: e.target.value })}
+                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl font-bold text-xs"
+                      >
+                        <option value="Code 128">Code 128</option>
+                        <option value="EAN-13">EAN-13 (13 Digits)</option>
+                        <option value="UPC">UPC-A (12 Digits)</option>
+                        <option value="QR Code">QR Code Only</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[9px] font-bold text-slate-400 uppercase mb-1">Barcode Number</label>
+                      <input
+                        type="text"
+                        value={formData.barcodeNumber}
+                        onChange={e => setFormData({ ...formData, barcodeNumber: e.target.value })}
+                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl font-mono font-bold text-xs"
+                        placeholder="Auto or enter number..."
+                      />
+                    </div>
                   </div>
                 </div>
                 <div className="grid grid-cols-3 gap-4">

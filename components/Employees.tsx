@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { AppData, User } from '../types';
+import { AppData, User, UserRole } from '../types';
 import { IconUser, IconAdd } from './Icons';
 
 interface EmployeesProps {
@@ -15,7 +15,7 @@ const Employees: React.FC<EmployeesProps> = ({ data, updateData }) => {
     username: '',
     password: '',
     phone: '',
-    role: 'staff' as 'admin' | 'staff'
+    role: 'employee' as UserRole
   });
 
   const handleAddUser = (e: React.FormEvent) => {
@@ -29,7 +29,8 @@ const Employees: React.FC<EmployeesProps> = ({ data, updateData }) => {
       passwordHash: formData.password, // Storing raw for MVP, normally hash
       phone: formData.phone,
       role: formData.role,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      isActive: true
     };
 
     updateData(prev => ({
@@ -38,7 +39,7 @@ const Employees: React.FC<EmployeesProps> = ({ data, updateData }) => {
     }));
     
     setShowAddForm(false);
-    setFormData({ username: '', password: '', phone: '', role: 'staff' });
+    setFormData({ username: '', password: '', phone: '', role: 'employee' });
   };
 
   const removeUser = (id: string) => {
@@ -130,9 +131,10 @@ const Employees: React.FC<EmployeesProps> = ({ data, updateData }) => {
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-500 mb-1">Access Role</label>
-                    <select value={formData.role} onChange={e => setFormData({...formData, role: e.target.value as any})} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-bold uppercase text-xs tracking-widest">
-                      <option value="staff">Staff (Limited Access)</option>
-                      <option value="admin">Admin (Full Access)</option>
+                    <select value={formData.role} onChange={e => setFormData({...formData, role: e.target.value as UserRole})} className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-bold uppercase text-xs tracking-widest">
+                      <option value="employee">Employee</option>
+                      <option value="admin">Admin</option>
+                      <option value="manager">Manager</option>
                     </select>
                   </div>
                   <div className="flex gap-4 pt-4">

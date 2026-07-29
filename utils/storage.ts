@@ -42,6 +42,7 @@ const DEFAULT_WIDGETS: DashboardWidget[] = [
 const DEFAULT_DATA: AppData = {
   business: null,
   users: [],
+  roles: [],
   currentUser: null,
   customers: [],
   products: [],
@@ -133,6 +134,15 @@ export const loadDataAsync = async (): Promise<AppData> => {
       if (data.templateSettings.customFields === undefined) data.templateSettings.customFields = [];
     }
     if (!data.users) data.users = [];
+    
+    // Migration: Upgrade old "admin" role to "super_admin" since admin is no longer the highest role.
+    data.users = data.users.map((u: any) => {
+      if (u.role === 'admin') {
+        return { ...u, role: 'super_admin' };
+      }
+      return u;
+    });
+
     if (!data.customers) data.customers = [];
     if (!data.suppliers) data.suppliers = [];
     if (!data.purchases) data.purchases = [];
@@ -179,7 +189,16 @@ export const loadData = (): AppData => {
   const stored = localStorage.getItem(STORAGE_KEY);
   if (!stored) return DEFAULT_DATA;
   try {
-    return JSON.parse(stored);
+    const data = JSON.parse(stored);
+    if (data.users) {
+      data.users = data.users.map((u: any) => {
+        if (u.role === 'admin') {
+          return { ...u, role: 'super_admin' };
+        }
+        return u;
+      });
+    }
+    return data;
   } catch {
     return DEFAULT_DATA;
   }

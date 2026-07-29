@@ -112,8 +112,9 @@ const SetupScreen: React.FC<SetupScreenProps> = ({ onComplete, onImport }) => {
         username: adminData.username,
         passwordHash: adminData.password,
         phone: adminData.phone,
-        role: 'admin',
-        createdAt: new Date().toISOString()
+        role: 'super_admin',
+        createdAt: new Date().toISOString(),
+        isActive: true
       };
       onComplete(formData, admin, adminData.recoveryCode);
     } else {

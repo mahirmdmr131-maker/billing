@@ -173,8 +173,9 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
       username: newStaff.username, 
       passwordHash: newStaff.password, 
       phone: newStaff.phone,
-      role: 'staff', 
-      createdAt: new Date().toISOString() 
+      role: 'employee', 
+      createdAt: new Date().toISOString(),
+      isActive: true
     };
     updateData(prev => ({ ...prev, users: [...prev.users, newUser] }));
     setNewStaff({ username: '', password: '', phone: '' });
@@ -221,8 +222,17 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
         const importedData = JSON.parse(event.target?.result as string);
         if (importedData.users && importedData.business && importedData.customers) {
           if (confirm('RESTORE WARNING: This will replace all current business data, customers, and records. Proceed?')) {
+            // Migration: Upgrade old "admin" role to "super_admin"
+            const upgradedUsers = importedData.users.map((u: any) => {
+              if (u.role === 'admin') {
+                return { ...u, role: 'super_admin' };
+              }
+              return u;
+            });
+            
             updateData(() => ({
               ...importedData,
+              users: upgradedUsers,
               isInitialized: true,
               currentUser: data.currentUser // Preserve current logged in user if possible
             }));
@@ -940,9 +950,10 @@ const Settings: React.FC<SettingsProps> = ({ data, updateData, onManualSync, onL
               <div className="pt-8 border-t border-slate-100">
                  <h4 className="font-black uppercase text-[10px] text-slate-400 mb-6 text-center tracking-[0.4em]">Cloud Resonance Nodes</h4>
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="p-6 bg-slate-50 rounded-2xl border border-slate-200 text-center">
+                    <div className="p-6 bg-slate-50 rounded-2xl border border-slate-200 text-center space-y-3">
                        <h4 className="font-black uppercase text-xs mb-3">Google Drive Node</h4>
                        <button onClick={syncDriveNow} className="w-full py-3 bg-indigo-600 text-white font-black rounded-xl text-[10px] uppercase transition-all active:scale-95 shadow-lg">Manual Cloud Push</button>
+                       <button onClick={async () => { await initGoogleAuth(async () => { await checkDriveBackup(); }, false); }} className="w-full py-2 bg-slate-200 text-slate-800 font-black rounded-xl text-[10px] uppercase transition-all active:scale-95">Reconnect Drive</button>
                     </div>
                     <div className="p-6 bg-slate-50 rounded-2xl border border-slate-200 text-center">
                        <h4 className="font-black uppercase text-xs mb-3">Health Check</h4>

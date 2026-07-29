@@ -17,7 +17,10 @@ import Expenses from './components/Expenses';
 import Invoices from './components/Invoices';
 import Reports from './components/Reports';
 import Employees from './components/Employees';
+import AccessControl from './components/AccessControl';
+import AuditLogViewer from './components/AuditLogViewer';
 import Settings from './components/Settings';
+import BarcodeManager from './components/BarcodeManager';
 import About from './components/About';
 import AIAssistant from './components/AIAssistant';
 import { IconDashboard, IconCustomers, IconProducts, IconSales, IconFutureOrders, IconExpenses, IconInvoices, IconReports, IconSettings, IconInfo, IconMenu, IconClose, IconEdit, IconSupplier, IconInventory, IconTruck, IconUser } from './components/Icons';
@@ -27,19 +30,24 @@ import { uploadToOneDrive } from './utils/oneDrive';
 import { listenToSales, syncSaleToFirestore } from './services/firebaseService';
 import { auth } from './firebase';
 import { onAuthStateChanged, signInAnonymously } from 'firebase/auth';
+import { hasPermission, hasModuleAccess, createAuditLog } from './utils/rbac';
+import { PermissionProvider } from './src/context/PermissionContext';
 
 let directoryHandle1: any = null;
 let directoryHandle2: any = null;
 
 const AccessRestricted = () => (
-  <div className="flex flex-col items-center justify-center py-20 bg-white rounded-3xl border border-slate-200 shadow-sm">
-    <div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mb-4">
-      <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+  <div className="flex flex-col items-center justify-center py-20 bg-white rounded-3xl border border-slate-200 shadow-sm p-8 text-center max-w-lg mx-auto my-12">
+    <div className="w-20 h-20 bg-red-50 text-red-500 rounded-3xl flex items-center justify-center mb-6 shadow-inner">
+      <svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m0 0v2m0-2h2m-2 0H8m13 0a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
     </div>
-    <h3 className="text-xl font-bold text-slate-800">Access Restricted</h3>
-    <p className="text-slate-500">Only administrators can access this section.</p>
+    <h3 className="text-2xl font-black text-slate-800 tracking-tight">Access Restricted</h3>
+    <p className="text-slate-500 text-sm mt-2 leading-relaxed">You do not have permission to access this feature.</p>
+    <div className="mt-6 px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-400 uppercase tracking-wider">
+      Contact your Super Admin or Manager to assign access permissions
+    </div>
   </div>
 );
 
@@ -239,7 +247,15 @@ const App: React.FC = () => {
   }, [data.isDriveConnected, data.backupFolderName]);
 
   const handleLogout = useCallback(() => {
-    setData(prev => ({ ...prev, currentUser: null }));
+    setData(prev => {
+      const user = prev.currentUser;
+      const log = user ? createAuditLog(user, 'User Logout', 'Auth', `User ${user.username} logged out`) : null;
+      return {
+        ...prev,
+        currentUser: null,
+        auditLogs: log ? [log, ...(prev.auditLogs || [])] : (prev.auditLogs || [])
+      };
+    });
     directoryHandle1 = null;
     directoryHandle2 = null;
     setShowUserDropdown(false);
@@ -401,7 +417,10 @@ const App: React.FC = () => {
     }
   };
 
-  const isAdmin = data.currentUser?.role === 'admin';
+  const isSuperAdmin = data.currentUser?.role === 'super_admin';
+  const isAdmin = isSuperAdmin || data.currentUser?.role === 'admin';
+  const rolesList = data.roles || [];
+
   const themeColors = useMemo(() => {
     const maps: Record<AppTheme, { primary: string; secondary: string; text: string; light: string }> = {
       indigo: { primary: 'bg-indigo-900', secondary: 'bg-indigo-600', text: 'text-indigo-600', light: 'bg-indigo-50' },
@@ -437,30 +456,57 @@ const App: React.FC = () => {
   if (!data.currentUser) return <Login data={data} updateData={handleUpdateData} onLogin={handleLogin} />;
 
   const renderTabContent = () => {
+    const user = data.currentUser;
+    const roles = rolesList;
+
     switch (activeTab) {
-      case NavigationTab.Dashboard: return <Dashboard data={data} updateData={handleUpdateData} />;
-      case NavigationTab.Customers: return <Customers data={data} updateData={handleUpdateData} onNavigateToInvoices={(sale) => { setSelectedInvoicingSale(sale); setActiveTab(NavigationTab.Invoices); }} initialCustomer={selectedCustomer} onClearInitialCustomer={() => setSelectedCustomer(null)} />;
-      case NavigationTab.Suppliers: return <Suppliers data={data} updateData={handleUpdateData} />;
-      case NavigationTab.Products: return <Products data={data} updateData={handleUpdateData} initialSearchTerm={selectedProductSearch} />;
-      case NavigationTab.Inventory: return <Inventory data={data} updateData={handleUpdateData} />;
-      case NavigationTab.Purchases: return <Purchases data={data} updateData={handleUpdateData} />;
-      case NavigationTab.Sales: return <Sales data={data} updateData={handleUpdateData} onNavigateToInvoices={() => { setSelectedInvoicingSale(null); setActiveTab(NavigationTab.Invoices); }} initialSaleToDuplicate={saleToDuplicate} onClearDuplicate={() => setSaleToDuplicate(null)} />;
-      case NavigationTab.FutureOrders: return <FutureOrders data={data} updateData={handleUpdateData} />;
-      case NavigationTab.Expenses: return isAdmin ? <Expenses data={data} updateData={handleUpdateData} /> : <AccessRestricted />;
-      case NavigationTab.Invoices: return <Invoices data={data} updateData={handleUpdateData} initialSale={selectedInvoicingSale} onResetInitialSale={() => setSelectedInvoicingSale(null)} onDuplicate={(sale) => { setSaleToDuplicate(sale); setActiveTab(NavigationTab.Sales); }} />;
-      case NavigationTab.Reports: return isAdmin ? <Reports data={data} /> : <AccessRestricted />;
-      case NavigationTab.Employees: return isAdmin ? <Employees data={data} updateData={handleUpdateData} /> : <AccessRestricted />;
-      case NavigationTab.Manufacturing: return isAdmin ? <Manufacturing data={data} updateData={handleUpdateData} /> : <AccessRestricted />;
-      case NavigationTab.AIAssistant: return isAdmin ? <AIAssistant data={data} /> : <AccessRestricted />;
-      case NavigationTab.Settings: return <Settings data={data} updateData={handleUpdateData} onManualSync={handleManualSync} onLogout={handleLogout} onSetLocalHandle={setLocalHandle} />;
-      case NavigationTab.About: return <About data={data} />;
-      default: return <Dashboard data={data} updateData={handleUpdateData} />;
+      case NavigationTab.Dashboard:
+        return hasPermission(user, roles, 'dashboard.view') ? <Dashboard data={data} updateData={handleUpdateData} /> : <AccessRestricted />;
+      case NavigationTab.Customers:
+        return hasPermission(user, roles, 'customers.view') ? <Customers data={data} updateData={handleUpdateData} onNavigateToInvoices={(sale) => { setSelectedInvoicingSale(sale); setActiveTab(NavigationTab.Invoices); }} initialCustomer={selectedCustomer} onClearInitialCustomer={() => setSelectedCustomer(null)} /> : <AccessRestricted />;
+      case NavigationTab.Suppliers:
+        return hasPermission(user, roles, 'suppliers.view') ? <Suppliers data={data} updateData={handleUpdateData} /> : <AccessRestricted />;
+      case NavigationTab.Products:
+        return hasPermission(user, roles, 'products.view') ? <Products data={data} updateData={handleUpdateData} initialSearchTerm={selectedProductSearch} /> : <AccessRestricted />;
+      case NavigationTab.Inventory:
+        return hasPermission(user, roles, 'inventory.view') ? <Inventory data={data} updateData={handleUpdateData} /> : <AccessRestricted />;
+      case NavigationTab.Purchases:
+        return hasPermission(user, roles, 'purchases.view') ? <Purchases data={data} updateData={handleUpdateData} /> : <AccessRestricted />;
+      case NavigationTab.Sales:
+        return hasPermission(user, roles, 'sales.view') ? <Sales data={data} updateData={handleUpdateData} onNavigateToInvoices={() => { setSelectedInvoicingSale(null); setActiveTab(NavigationTab.Invoices); }} initialSaleToDuplicate={saleToDuplicate} onClearDuplicate={() => setSaleToDuplicate(null)} /> : <AccessRestricted />;
+      case NavigationTab.FutureOrders:
+        return hasPermission(user, roles, 'sales.view') ? <FutureOrders data={data} updateData={handleUpdateData} /> : <AccessRestricted />;
+      case NavigationTab.Expenses:
+        return hasPermission(user, roles, 'expenses.view') ? <Expenses data={data} updateData={handleUpdateData} /> : <AccessRestricted />;
+      case NavigationTab.Invoices:
+        return hasPermission(user, roles, 'sales.view') ? <Invoices data={data} updateData={handleUpdateData} initialSale={selectedInvoicingSale} onResetInitialSale={() => setSelectedInvoicingSale(null)} onDuplicate={(sale) => { setSaleToDuplicate(sale); setActiveTab(NavigationTab.Sales); }} /> : <AccessRestricted />;
+      case NavigationTab.Reports:
+        return hasModuleAccess(user, roles, 'reports') ? <Reports data={data} /> : <AccessRestricted />;
+      case NavigationTab.Employees:
+        return hasPermission(user, roles, 'employees.view') ? <Employees data={data} updateData={handleUpdateData} /> : <AccessRestricted />;
+      case NavigationTab.AccessControl:
+        return (hasPermission(user, roles, 'access_control.view') || isAdmin) ? <AccessControl data={data} updateData={handleUpdateData} /> : <AccessRestricted />;
+      case NavigationTab.AuditLogs:
+        return (hasPermission(user, roles, 'audit.view') || isAdmin) ? <AuditLogViewer data={data} updateData={handleUpdateData} /> : <AccessRestricted />;
+      case NavigationTab.Manufacturing:
+        return hasPermission(user, roles, 'manufacturing.view') ? <Manufacturing data={data} updateData={handleUpdateData} /> : <AccessRestricted />;
+      case NavigationTab.BarcodeManager:
+        return hasPermission(user, roles, 'products.view') ? <BarcodeManager data={data} updateData={handleUpdateData} /> : <AccessRestricted />;
+      case NavigationTab.AIAssistant:
+        return hasPermission(user, roles, 'ai.allow') ? <AIAssistant data={data} /> : <AccessRestricted />;
+      case NavigationTab.Settings:
+        return hasPermission(user, roles, 'settings.view') ? <Settings data={data} updateData={handleUpdateData} onManualSync={handleManualSync} onLogout={handleLogout} onSetLocalHandle={setLocalHandle} /> : <AccessRestricted />;
+      case NavigationTab.About:
+        return <About data={data} />;
+      default:
+        return <Dashboard data={data} updateData={handleUpdateData} />;
     }
   };
 
   return (
-    <div className={`min-h-screen pb-0 ${isSidebarCollapsed ? 'md:pl-0' : 'md:pl-64'} transition-all duration-300 flex flex-col bg-slate-50 print:min-h-0 print:h-auto`}>
-      {/* Main Sidebar (Drawer on Mobile) */}
+    <PermissionProvider user={data.currentUser} roles={rolesList}>
+      <div className={`min-h-screen pb-0 ${isSidebarCollapsed ? 'md:pl-0' : 'md:pl-64'} transition-all duration-300 flex flex-col bg-slate-50 print:min-h-0 print:h-auto`}>
+        {/* Main Sidebar (Drawer on Mobile) */}
       <aside className={`fixed inset-y-0 left-0 z-[50] w-64 ${themeColors.primary} text-white flex flex-col p-6 transform transition-transform duration-300 ease-in-out ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'} ${isSidebarCollapsed ? 'md:-translate-x-full' : 'md:translate-x-0'} overflow-y-auto no-print`}>
         <div className="flex items-center justify-between mb-10">
           <div className="flex items-center space-x-3 overflow-hidden">
@@ -472,22 +518,61 @@ const App: React.FC = () => {
           </button>
         </div>
         <nav className="flex-1 space-y-2">
-          <NavItem active={activeTab === NavigationTab.Dashboard} onClick={() => navigateTo(NavigationTab.Dashboard)} icon={<IconDashboard />} label="Dashboard" />
-          <NavItem active={activeTab === NavigationTab.Customers} onClick={() => navigateTo(NavigationTab.Customers)} icon={<IconCustomers />} label="Customers" />
-          <NavItem active={activeTab === NavigationTab.Suppliers} onClick={() => navigateTo(NavigationTab.Suppliers)} icon={<IconSupplier />} label="Suppliers" />
-          <NavItem active={activeTab === NavigationTab.Products} onClick={() => navigateTo(NavigationTab.Products)} icon={<IconProducts />} label="Products" />
-          <NavItem active={activeTab === NavigationTab.Inventory} onClick={() => navigateTo(NavigationTab.Inventory)} icon={<IconInventory />} label="Inventory" />
-          {isAdmin && <NavItem active={activeTab === NavigationTab.Manufacturing} onClick={() => navigateTo(NavigationTab.Manufacturing)} icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>} label="Manufacturing" />}
-          <NavItem active={activeTab === NavigationTab.Purchases} onClick={() => navigateTo(NavigationTab.Purchases)} icon={<IconTruck />} label="Purchases" />
-          <NavItem active={activeTab === NavigationTab.Sales} onClick={() => navigateTo(NavigationTab.Sales)} icon={<IconSales />} label="Billing" />
-          <NavItem active={activeTab === NavigationTab.FutureOrders} onClick={() => navigateTo(NavigationTab.FutureOrders)} icon={<IconFutureOrders />} label="Future Orders" />
-          {isAdmin && <NavItem active={activeTab === NavigationTab.Expenses} onClick={() => navigateTo(NavigationTab.Expenses)} icon={<IconExpenses />} label="Expenses" />}
-          <NavItem active={activeTab === NavigationTab.Invoices} onClick={() => { setSelectedInvoicingSale(null); navigateTo(NavigationTab.Invoices); }} icon={<IconInvoices />} label="Invoices" />
-          {isAdmin && <NavItem active={activeTab === NavigationTab.Employees} onClick={() => navigateTo(NavigationTab.Employees)} icon={<IconUser className="w-5 h-5" />} label="Employees" />}
-          {isAdmin && <NavItem active={activeTab === NavigationTab.Reports} onClick={() => navigateTo(NavigationTab.Reports)} icon={<IconReports />} label="Reports" />}
-          {isAdmin && <NavItem active={activeTab === NavigationTab.AIAssistant} onClick={() => navigateTo(NavigationTab.AIAssistant)} icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" /></svg>} label="AI Analyst" />}
+          {hasPermission(data.currentUser, rolesList, 'dashboard.view') && (
+            <NavItem active={activeTab === NavigationTab.Dashboard} onClick={() => navigateTo(NavigationTab.Dashboard)} icon={<IconDashboard />} label="Dashboard" />
+          )}
+          {hasPermission(data.currentUser, rolesList, 'customers.view') && (
+            <NavItem active={activeTab === NavigationTab.Customers} onClick={() => navigateTo(NavigationTab.Customers)} icon={<IconCustomers />} label="Customers" />
+          )}
+          {hasPermission(data.currentUser, rolesList, 'suppliers.view') && (
+            <NavItem active={activeTab === NavigationTab.Suppliers} onClick={() => navigateTo(NavigationTab.Suppliers)} icon={<IconSupplier />} label="Suppliers" />
+          )}
+          {hasPermission(data.currentUser, rolesList, 'products.view') && (
+            <NavItem active={activeTab === NavigationTab.Products} onClick={() => navigateTo(NavigationTab.Products)} icon={<IconProducts />} label="Products" />
+          )}
+          {hasPermission(data.currentUser, rolesList, 'products.view') && (
+            <NavItem active={activeTab === NavigationTab.BarcodeManager} onClick={() => navigateTo(NavigationTab.BarcodeManager)} icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h3m-3 0H9m-3 0h3m-3 0h3m-6 6h6m-6 6h6" /></svg>} label="Barcode Manager" />
+          )}
+          {hasPermission(data.currentUser, rolesList, 'inventory.view') && (
+            <NavItem active={activeTab === NavigationTab.Inventory} onClick={() => navigateTo(NavigationTab.Inventory)} icon={<IconInventory />} label="Inventory" />
+          )}
+          {hasPermission(data.currentUser, rolesList, 'manufacturing.view') && (
+            <NavItem active={activeTab === NavigationTab.Manufacturing} onClick={() => navigateTo(NavigationTab.Manufacturing)} icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>} label="Manufacturing" />
+          )}
+          {hasPermission(data.currentUser, rolesList, 'purchases.view') && (
+            <NavItem active={activeTab === NavigationTab.Purchases} onClick={() => navigateTo(NavigationTab.Purchases)} icon={<IconTruck />} label="Purchases" />
+          )}
+          {hasPermission(data.currentUser, rolesList, 'sales.view') && (
+            <NavItem active={activeTab === NavigationTab.Sales} onClick={() => navigateTo(NavigationTab.Sales)} icon={<IconSales />} label="Billing" />
+          )}
+          {hasPermission(data.currentUser, rolesList, 'sales.view') && (
+            <NavItem active={activeTab === NavigationTab.FutureOrders} onClick={() => navigateTo(NavigationTab.FutureOrders)} icon={<IconFutureOrders />} label="Future Orders" />
+          )}
+          {hasPermission(data.currentUser, rolesList, 'expenses.view') && (
+            <NavItem active={activeTab === NavigationTab.Expenses} onClick={() => navigateTo(NavigationTab.Expenses)} icon={<IconExpenses />} label="Expenses" />
+          )}
+          {hasPermission(data.currentUser, rolesList, 'sales.view') && (
+            <NavItem active={activeTab === NavigationTab.Invoices} onClick={() => { setSelectedInvoicingSale(null); navigateTo(NavigationTab.Invoices); }} icon={<IconInvoices />} label="Invoices" />
+          )}
+          {hasPermission(data.currentUser, rolesList, 'employees.view') && (
+            <NavItem active={activeTab === NavigationTab.Employees} onClick={() => navigateTo(NavigationTab.Employees)} icon={<IconUser className="w-5 h-5" />} label="Employees" />
+          )}
+          {(hasPermission(data.currentUser, rolesList, 'access_control.view') || isAdmin) && (
+            <NavItem active={activeTab === NavigationTab.AccessControl} onClick={() => navigateTo(NavigationTab.AccessControl)} icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>} label="Access Control" />
+          )}
+          {(hasPermission(data.currentUser, rolesList, 'audit.view') || isAdmin) && (
+            <NavItem active={activeTab === NavigationTab.AuditLogs} onClick={() => navigateTo(NavigationTab.AuditLogs)} icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>} label="Audit Logs" />
+          )}
+          {hasModuleAccess(data.currentUser, rolesList, 'reports') && (
+            <NavItem active={activeTab === NavigationTab.Reports} onClick={() => navigateTo(NavigationTab.Reports)} icon={<IconReports />} label="Reports" />
+          )}
+          {hasPermission(data.currentUser, rolesList, 'ai.allow') && (
+            <NavItem active={activeTab === NavigationTab.AIAssistant} onClick={() => navigateTo(NavigationTab.AIAssistant)} icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" /></svg>} label="AI Analyst" />
+          )}
           <div className="pt-4 border-t border-white/10 mt-4">
-            <NavItem active={activeTab === NavigationTab.Settings} onClick={() => navigateTo(NavigationTab.Settings)} icon={<IconSettings />} label="Settings" />
+            {hasPermission(data.currentUser, rolesList, 'settings.view') && (
+              <NavItem active={activeTab === NavigationTab.Settings} onClick={() => navigateTo(NavigationTab.Settings)} icon={<IconSettings />} label="Settings" />
+            )}
             <NavItem active={activeTab === NavigationTab.About} onClick={() => navigateTo(NavigationTab.About)} icon={<IconInfo />} label="About Software" />
           </div>
         </nav>
@@ -585,7 +670,8 @@ const App: React.FC = () => {
       {isBusinessModalOpen && data.business && (
         <BusinessEditModal business={data.business} isOpen={isBusinessModalOpen} onClose={() => setIsBusinessModalOpen(false)} onSave={(info) => { handleUpdateData(prev => ({ ...prev, business: info })); setIsBusinessModalOpen(false); }} />
       )}
-    </div>
+      </div>
+    </PermissionProvider>
   );
 };
 

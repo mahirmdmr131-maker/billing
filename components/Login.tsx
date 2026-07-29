@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { AppData, User } from '../types';
 import { sendOTP, generateOTP } from '../utils/otp';
+import { createAuditLog } from '../utils/rbac';
 
 interface LoginProps {
   data: AppData;
@@ -38,7 +39,30 @@ const Login: React.FC<LoginProps> = ({ data, updateData, onLogin }) => {
     e.preventDefault();
     const user = data.users.find(u => u.username === username && u.passwordHash === password);
     if (user) {
-      onLogin(user);
+      if (user.isLocked) {
+        setError('Your account is locked. Please contact a Super Administrator.');
+        return;
+      }
+      if (user.isActive === false) {
+        setError('Your account is disabled. Please contact your manager or administrator.');
+        return;
+      }
+
+      const updatedUser: User = {
+        ...user,
+        lastLogin: new Date().toISOString(),
+      };
+
+      updateData(prev => {
+        const log = createAuditLog(updatedUser, 'User Login', 'Auth', `User ${updatedUser.username} logged in successfully`);
+        return {
+          ...prev,
+          users: prev.users.map(u => u.id === user.id ? updatedUser : u),
+          auditLogs: [log, ...(prev.auditLogs || [])]
+        };
+      });
+
+      onLogin(updatedUser);
     } else {
       setError('Invalid username or password');
     }

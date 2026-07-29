@@ -477,20 +477,59 @@ const Sales: React.FC<SalesProps> = ({ data, updateData, onNavigateToInvoices, p
         <BarcodeScanner 
           onResult={(code) => {
             setShowScanner(false);
-            const foundProduct = data.products.find(p => p.code === code || p.id === code.replace('PROD:', ''));
+            let targetCode = code.trim();
+            let productIdFromQr = '';
+
+            try {
+              if (targetCode.startsWith('{') && targetCode.endsWith('}')) {
+                const parsed = JSON.parse(targetCode);
+                if (parsed.id) productIdFromQr = parsed.id;
+                if (parsed.barcode) targetCode = parsed.barcode;
+              }
+            } catch (e) {
+              // Not JSON, treat as raw code
+            }
+
+            const foundProduct = data.products.find(
+              p =>
+                (productIdFromQr && p.id === productIdFromQr) ||
+                (p.barcodeNumber && p.barcodeNumber.trim().toLowerCase() === targetCode.toLowerCase()) ||
+                (p.code && p.code.trim().toLowerCase() === targetCode.toLowerCase()) ||
+                p.id === targetCode.replace('PROD:', '')
+            );
+
             if (foundProduct) {
-               const rate = formData.tier === 'Wholesale' ? (foundProduct.wholesaleRate || foundProduct.defaultRate) : foundProduct.defaultRate;
-               // If last item is empty, replace it, else push
-               const currentItems = [...formData.items];
-               const lastItem = currentItems[currentItems.length - 1];
-               if (lastItem && !lastItem.productName && lastItem.rate === 0) {
-                 currentItems[currentItems.length - 1] = { productName: foundProduct.name, quantity: 1, unit: foundProduct.unit, rate };
-               } else {
-                 currentItems.push({ productName: foundProduct.name, quantity: 1, unit: foundProduct.unit, rate });
-               }
-               setFormData({ ...formData, items: currentItems });
+              const rate = formData.tier === 'Wholesale' ? (foundProduct.wholesaleRate || foundProduct.defaultRate) : foundProduct.defaultRate;
+              const currentItems = [...formData.items];
+              
+              const existingIdx = currentItems.findIndex(i => i.productName && i.productName.toLowerCase() === foundProduct.name.toLowerCase());
+
+              if (existingIdx >= 0) {
+                currentItems[existingIdx].quantity = (Number(currentItems[existingIdx].quantity) || 0) + 1;
+              } else {
+                const lastItem = currentItems[currentItems.length - 1];
+                if (lastItem && !lastItem.productName && lastItem.rate === 0) {
+                  currentItems[currentItems.length - 1] = {
+                    productName: foundProduct.name,
+                    quantity: 1,
+                    unit: foundProduct.unit,
+                    rate,
+                    gstPercent: foundProduct.gstPercent || 0
+                  };
+                } else {
+                  currentItems.push({
+                    productName: foundProduct.name,
+                    quantity: 1,
+                    unit: foundProduct.unit,
+                    rate,
+                    gstPercent: foundProduct.gstPercent || 0
+                  });
+                }
+              }
+
+              setFormData({ ...formData, items: currentItems });
             } else {
-               alert(`Product with barcode ${code} not found in catalog.`);
+              alert(`Product with barcode "${code}" not found in catalog.`);
             }
           }} 
           onClose={() => setShowScanner(false)} 

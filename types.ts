@@ -1,12 +1,62 @@
-export type UserRole = 'admin' | 'staff';
+export type Permission =
+  | 'dashboard.view'
+  | 'products.view' | 'products.add' | 'products.edit' | 'products.delete' | 'products.import' | 'products.export'
+  | 'inventory.view' | 'inventory.add' | 'inventory.edit' | 'inventory.delete' | 'inventory.stock_adjustment' | 'inventory.stock_transfer' | 'inventory.view_cost_price'
+  | 'sales.view' | 'sales.create' | 'sales.edit' | 'sales.cancel' | 'sales.delete' | 'sales.print' | 'sales.share' | 'sales.apply_discount' | 'sales.view_profit'
+  | 'customers.view' | 'customers.add' | 'customers.edit' | 'customers.delete'
+  | 'suppliers.view' | 'suppliers.add' | 'suppliers.edit' | 'suppliers.delete'
+  | 'purchases.view' | 'purchases.create' | 'purchases.edit' | 'purchases.delete'
+  | 'manufacturing.view' | 'manufacturing.create_batch' | 'manufacturing.edit_batch' | 'manufacturing.delete_batch' | 'manufacturing.view_cost'
+  | 'expenses.view' | 'expenses.add' | 'expenses.edit' | 'expenses.delete'
+  | 'reports.view_sales' | 'reports.view_purchase' | 'reports.view_inventory' | 'reports.view_profit' | 'reports.export'
+  | 'employees.view' | 'employees.add' | 'employees.edit' | 'employees.delete'
+  | 'settings.view' | 'settings.modify'
+  | 'ai.allow'
+  | 'backup.create' | 'backup.restore'
+  | 'printer.print' | 'printer.configure'
+  | 'cloud.enable' | 'cloud.disable'
+  | 'access_control.view' | 'access_control.manage_roles' | 'access_control.manage_users'
+  | 'audit.view';
+
+export interface Role {
+  id: string;
+  name: string;
+  description?: string;
+  permissions: Permission[];
+  isSystem?: boolean;
+}
+
+export type UserRole = 'super_admin' | 'admin' | 'manager' | 'sales_executive' | 'cashier' | 'store_keeper' | 'production_manager' | 'delivery_staff' | 'accountant' | 'employee' | 'custom';
 
 export interface User {
   id: string;
   username: string;
   passwordHash: string;
-  phone?: string; // Registered mobile number for OTP
+  phone?: string;
+  email?: string;
+  employeeId?: string;
+  department?: string;
   role: UserRole;
+  customRoleId?: string; // If role is 'custom'
   createdAt: string;
+  isActive: boolean;
+  isLocked?: boolean;
+  profilePhoto?: string;
+  lastLogin?: string;
+  lastLoginIp?: string;
+}
+
+export interface AuditLogEntry {
+  id: string;
+  timestamp: string;
+  userId: string;
+  username: string;
+  userRole: string;
+  action: string;
+  category: 'Auth' | 'Product' | 'Inventory' | 'Sales' | 'Purchase' | 'Customer' | 'Supplier' | 'Manufacturing' | 'Expense' | 'UserManagement' | 'RoleManagement' | 'Settings';
+  details: string;
+  ipAddress?: string;
+  deviceInfo?: string;
 }
 
 export interface BusinessInfo {
@@ -77,6 +127,13 @@ export interface Product {
   batches?: InventoryBatch[];
   hsnCode?: string;
   gstPercent?: number;
+  // QR/Barcode
+  qrCodeData?: string;
+  barcodeData?: string;
+  barcodeType?: 'QR' | 'Code-128' | 'Code 128' | 'EAN-13' | 'EAN-8' | 'UPC-A' | 'UPC' | string;
+  barcodeNumber?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface Supplier {
@@ -284,6 +341,7 @@ export interface Recipe {
 export interface AppData {
   business: BusinessInfo | null;
   users: User[];
+  roles: Role[];
   attendance?: AttendanceRecord[];
   payroll?: PayrollRecord[];
   recipes?: Recipe[];
@@ -316,6 +374,7 @@ export interface AppData {
   backupFolderName: string;
   autoLogoutMinutes?: number; 
   templateSettings: TemplateSettings;
+  auditLogs?: AuditLogEntry[];
 }
 
 export enum NavigationTab {
@@ -331,7 +390,10 @@ export enum NavigationTab {
   Invoices = 'invoices',
   Reports = 'reports',
   Employees = 'employees',
+  AccessControl = 'access_control',
+  AuditLogs = 'audit_logs',
   Manufacturing = 'manufacturing',
+  BarcodeManager = 'barcode_manager',
   Settings = 'settings',
   About = 'about',
   AIAssistant = 'ai_assistant'

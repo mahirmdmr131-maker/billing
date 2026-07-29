@@ -39,7 +39,8 @@ export const GlobalSearch: React.FC<GlobalSearchProps> = ({ data, onNavigate }) 
 
     const products = data.products.filter(p => 
       p.name.toLowerCase().includes(q) || 
-      (p.code && p.code.toLowerCase().includes(q))
+      (p.code && p.code.toLowerCase().includes(q)) ||
+      (p.barcodeNumber && p.barcodeNumber.toLowerCase().includes(q))
     ).slice(0, 5);
 
     const expenses = data.expenses.filter(e => 
